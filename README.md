@@ -1,66 +1,70 @@
 # ArmorGemini
 
-ArmorIQ intent-based security enforcement for Gemini CLI. Enforces that AI agent tool calls match declared intent and workspace policy, and audits every call.
+ArmorIQ intent-based security enforcement for Gemini CLI. Registers on Gemini's lifecycle hooks and enforces workspace policy on every tool call.
 
-**Status:** v0.1.0. Local-only enforcement. Backend wiring (IAP tokens, CSRG proofs, dashboard) comes next.
+**Status:** v0.2.0. Backend-authoritative. Requires an ArmorIQ API key.
 
-## How It Works
+## Design
 
-Gemini CLI exposes lifecycle hooks (SessionStart, BeforeTool, AfterTool, SessionEnd, plus BeforeAgent/AfterAgent/BeforeModel/AfterModel). ArmorGemini registers on the four listed above:
+ArmorGemini is **backend-only**: every enforcement decision and every audit record flows through the ArmorIQ IAP backend. There is no local policy fallback and no local audit persistence. If the plugin is not configured with an API key, hooks fail closed and every tool call is denied with a clear "not configured" message.
 
 ```
-User Prompt ──► SessionStart ──► session state init
-                                     │
-Tool Call ──► BeforeTool ──► policy check ──► allow / deny / hold
-                                     │
-Tool Result ──► AfterTool ──► sanitize + audit log
+User Prompt ──► SessionStart hook
+                                                             │
+Tool Call ──► BeforeTool hook ──► POST /iap/verify-step ──► allow | deny
+                                                             │
+Tool Result ──► AfterTool hook ──► POST /iap/audit (best-effort)
 ```
 
-1. **BeforeTool (enforcement):** evaluates the pending tool call against local policy. Denies via Gemini's `decision: "deny"` and surfaces the reason and a badge back to the user.
-2. **AfterTool (audit):** appends a sanitized record (secrets redacted, long strings truncated) to a daily JSONL audit log.
-3. **SessionStart / SessionEnd:** session state hooks. Currently just log; used later for intent tokens.
-
-## Install (local dev)
+## Install
 
 ```bash
 git clone git@github.com:armoriq/armorGemini.git
 cd armorGemini
 ```
 
-To enable in a Gemini CLI workspace, symlink or copy `.gemini/settings.json` into your project (or your `~/.gemini/settings.json` for global). The paths inside currently point at the checkout; a proper installer will land later.
+Copy or symlink `.gemini/settings.json` into your project (or `~/.gemini/settings.json` for global). Adjust the absolute paths inside so they point at your checkout; the packaged extension in v0.6 will handle path resolution.
 
 ## Configuration
 
-Policy lives under `$ARMORGEMINI_DATA_DIR/policy.json`, defaulting to `~/.armoriq/armorgemini/policy.json`. First run seeds:
+ArmorGemini reads these environment variables:
 
-| Tool | Verb | Note |
-|---|---|---|
-| `read_file` | allow | read is safe |
-| `list_directory` | allow | list is safe |
-| `run_shell_command` | hold | shell requires approval |
-| `write_file` | hold | writes require approval |
-| `replace` | hold | replace requires approval |
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `ARMORIQ_API_KEY` | Yes | - | Your ArmorIQ API key. Missing = fail-closed. |
+| `ARMORIQ_BACKEND_ENDPOINT` | No | `https://api.armoriq.ai` | Override for dev or self-hosted backends. |
+| `ARMORIQ_ORG_ID` | No | - | Scope the plugin to a specific ArmorIQ org. |
+| `ARMORGEMINI_TIMEOUT_MS` | No | `8000` | Per-request timeout to the backend. |
 
-Rule verbs: `allow`, `deny`, `hold`.
+Get a key at https://armoriq.ai.
 
-- `allow` lets the call through.
-- `deny` returns Gemini a `decision: "deny"` with the rule's `note` as reason. Blocking is enforced.
-- `hold` also returns `decision: "deny"` but frames the reason as an approval request. Retry after user confirmation.
+## The `/armor` slash commands
 
-Rules are matched by exact `tool_name` or `"*"` for the default rule. Regex + parameter matching coming later.
+Installed alongside the hooks. All commands stage proposals on the ArmorIQ dashboard - a human confirms them there before they take effect.
 
-## Audit Logs
+| Command | Purpose |
+|---|---|
+| `/armor:list` | Show the current policy for this workspace. |
+| `/armor:add <verb> <target> [note]` | Stage a rule change. Verb: `allow`, `deny`, or `hold`. |
+| `/armor:template <name>` | Stage a named policy template (lockdown, strict-read-only, balanced, ...). |
+| `/armor:help` | Show help. |
 
-Every tool call (allowed, denied, held) appends a line to `$ARMORGEMINI_DATA_DIR/audit/YYYY-MM-DD.jsonl` with:
+Examples:
 
-- `at` (ISO 8601)
-- `session` (Gemini session id)
-- `tool` (tool name)
-- `input` (parameters, sanitized: secrets redacted, long strings truncated)
-- `verdict` (allow / deny / hold)
-- `rule` (matched rule id/verb/target, if any)
+```
+/armor:list
+/armor:add deny web_fetch external network is not allowed here
+/armor:template lockdown
+```
 
-AfterTool entries additionally include `result_summary` from Gemini's `tool_response`.
+## Hook lifecycle
+
+| Hook | What ArmorGemini does |
+|---|---|
+| `SessionStart` | Logs session_id, cwd, and configured state. |
+| `BeforeTool` | Calls `POST /iap/verify-step` with tool name, input, session id, and Gemini's per-tool `description`. Returns `decision: "deny"` with the backend's reason if disallowed. |
+| `AfterTool` | Sanitizes input (redacts obvious secret-shaped keys, truncates long strings), then best-effort `POST /iap/audit`. Never blocks. |
+| `SessionEnd` | Logs session end. |
 
 ## Tests
 
@@ -68,20 +72,20 @@ AfterTool entries additionally include `result_summary` from Gemini's `tool_resp
 node --test tests/*.test.mjs
 ```
 
-Two suites so far: policy engine, engine handlers. Uses a temp `ARMORGEMINI_DATA_DIR` per suite for hermeticity.
+Tests stub `globalThis.fetch` per case to simulate backend responses (allow, deny, 401, network error). No real network is hit.
 
 ## Roadmap
 
-- v0.1: local-only enforcement, seed policy, JSONL audit (this release)
-- v0.2: `/armor` slash command surface via Gemini's prompt commands (parity with ArmorClaude)
-- v0.3: policy templates (lockdown / strict-read-only / balanced / velocity-machine)
-- v0.4: backend integration - intent tokens, CSRG proofs, dashboard visibility (shares ArmorIQ IAP with ArmorClaude / ArmorCodex)
-- v0.5: intent-drift detection using Gemini's per-tool `description` field vs registered plan
-- v0.6: distribution as a Gemini CLI extension
+- **v0.1** - local-mode spike (superseded).
+- **v0.2** - backend-only + /armor slash commands (this release).
+- **v0.3** - policy templates surfaced through /armor:template with dashboard-side template library.
+- **v0.4** - signed intent tokens + CSRG proofs.
+- **v0.5** - intent-drift detection using Gemini's per-tool `description` field vs the registered plan.
+- **v0.6** - packaged as a Gemini CLI extension for one-command install.
 
 ## Provenance
 
-Based on the design of [ArmorClaude](https://github.com/armoriq/armorClaude). Feasibility spike results: Gemini CLI's `BeforeTool` hook confirmed to accept `decision: "deny"` and surface the reason plus `systemMessage` badge to the user. Payload richness matches ArmorClaude, plus Gemini gives us a per-tool-call `description` field (Gemini's own reasoning about why it wants to run the tool) that ArmorClaude has to reconstruct from the plan file.
+Ports the ArmorClaude enforcement model to Gemini CLI. Feasibility spike results: Gemini CLI's `BeforeTool` accepts `decision: "deny"` and surfaces both the reason and a `systemMessage` badge to the user; `AfterTool` gives us the full `tool_response` including LLM-facing content and display metadata. Gemini also exposes a per-tool-call `description` field (the model's own reasoning about the call) that gives us a second signal for intent-drift detection.
 
 ## License
 

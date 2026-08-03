@@ -1,0 +1,6 @@
+description = "Stage a named ArmorIQ policy template (lockdown, strict-read-only, balanced, ...)."
+
+prompt = """The user ran /armor:template {{args}}. Below is the raw output from the ArmorGemini backend CLI. Report it verbatim - staged templates require human confirmation on the ArmorIQ dashboard.
+
+!{node /Users/hariharasudhan/Armoriq/armorGemini/scripts/armor/cli.mjs template {{args}}}
+"""

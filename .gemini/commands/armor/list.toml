@@ -1,0 +1,6 @@
+description = "Show the current ArmorIQ policy for this workspace."
+
+prompt = """The user ran /armor:list. Below is the raw output from the ArmorGemini backend CLI. Summarise it for the user without adding rules or claims of your own.
+
+!{node /Users/hariharasudhan/Armoriq/armorGemini/scripts/armor/cli.mjs list}
+"""

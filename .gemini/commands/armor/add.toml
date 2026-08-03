@@ -1,0 +1,6 @@
+description = "Stage a policy rule change (verb + target + optional note)."
+
+prompt = """The user ran /armor:add {{args}}. Below is the raw output from the ArmorGemini backend CLI. Report whatever it says verbatim, without adding a rule or confirming activation on your own - ArmorGemini requires human dashboard confirmation for any staged rule.
+
+!{node /Users/hariharasudhan/Armoriq/armorGemini/scripts/armor/cli.mjs add {{args}}}
+"""
