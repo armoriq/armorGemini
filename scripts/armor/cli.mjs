@@ -17,9 +17,16 @@ function requireConfigured() {
   const config = loadConfig();
   if (!config.isConfigured) {
     console.log(
-      "ArmorGemini is not configured.\n" +
-        "Set ARMORIQ_API_KEY in your environment before running /armor commands.\n" +
-        "Get an API key at https://armoriq.ai."
+      "ArmorGemini is not connected to an ArmorIQ account yet.\n" +
+        "\n" +
+        "Run this in a terminal to authenticate:\n" +
+        "  armoriq login --product armorgemini\n" +
+        "\n" +
+        "It opens the browser, mints a key, and writes ~/.armoriq/credentials.json.\n" +
+        "Then re-run the /armor command.\n" +
+        "\n" +
+        "If you have not installed the plugin yet:\n" +
+        "  curl -fsSL https://armoriq.ai/install_armorgemini.sh | bash"
     );
     process.exit(0);
   }

@@ -40,8 +40,8 @@ test("onBeforeTool DENIES every tool when ARMORIQ_API_KEY is missing (fail-close
       tool_input: { path: "README.md" }
     });
     assert.equal(decision.decision, "deny");
-    assert.match(decision.reason, /API key/);
-    assert.match(decision.systemMessage, /not configured/);
+    assert.match(decision.reason, /armoriq login/i);
+    assert.match(decision.systemMessage, /not connected/);
   });
 });
 

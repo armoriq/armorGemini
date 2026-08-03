@@ -18,25 +18,40 @@ Tool Result ──► AfterTool hook ──► POST /iap/audit (best-effort)
 
 ## Install
 
+One-command install (writes global Gemini CLI settings, installs the ArmorIQ SDK/CLI, and prompts you to sign in):
+
 ```bash
-git clone git@github.com:armoriq/armorGemini.git
-cd armorGemini
+curl -fsSL https://armoriq.ai/install_armorgemini.sh | bash
 ```
 
-Copy or symlink `.gemini/settings.json` into your project (or `~/.gemini/settings.json` for global). Adjust the absolute paths inside so they point at your checkout; the packaged extension in v0.6 will handle path resolution.
+The installer:
 
-## Configuration
+1. Installs `@armoriq/sdk` globally (adds the `armoriq` CLI to your PATH)
+2. Downloads the plugin into `~/.armoriq/armorGemini`
+3. Wires ArmorGemini's hooks into `~/.gemini/settings.json`
+4. Registers the `/armor:*` slash commands in `~/.gemini/commands/armor/`
+5. Runs `armoriq login --product armorgemini` which opens your browser, mints an API key, and writes it to `~/.armoriq/credentials.json`
+6. Verifies the hook fires
 
-ArmorGemini reads these environment variables:
+After that first run there is nothing more to do. The plugin picks up the key from `~/.armoriq/credentials.json` on every subsequent Gemini CLI session.
 
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `ARMORIQ_API_KEY` | Yes | - | Your ArmorIQ API key. Missing = fail-closed. |
-| `ARMORIQ_BACKEND_ENDPOINT` | No | `https://api.armoriq.ai` | Override for dev or self-hosted backends. |
-| `ARMORIQ_ORG_ID` | No | - | Scope the plugin to a specific ArmorIQ org. |
-| `ARMORGEMINI_TIMEOUT_MS` | No | `8000` | Per-request timeout to the backend. |
+### Manual credential controls (dev / advanced)
 
-Get a key at https://armoriq.ai.
+End users should not need these. For local dev or CI:
+
+| Variable | Purpose |
+|---|---|
+| `ARMORIQ_API_KEY` | Override the credentials.json key. Precedence: env > credentials.json. |
+| `ARMORIQ_BACKEND_ENDPOINT` | Override backend URL. Default `https://api.armoriq.ai`. |
+| `ARMORIQ_ORG_ID` | Scope the plugin to a specific ArmorIQ org. |
+| `ARMORGEMINI_TIMEOUT_MS` | Per-request timeout to the backend (default 8000). |
+
+### Reconnecting or switching accounts
+
+```bash
+armoriq login --product armorgemini    # re-runs the browser auth, overwrites credentials.json
+armoriq logout                          # clears credentials.json
+```
 
 ## The `/armor` slash commands
 

@@ -22,9 +22,10 @@ function notConfiguredDecision() {
   return {
     decision: "deny",
     reason:
-      "ArmorGemini requires an ArmorIQ API key. Set ARMORIQ_API_KEY in your environment. " +
-      "Get a key at https://armoriq.ai.",
-    systemMessage: "🛡️ ArmorGemini not configured - key required"
+      "ArmorGemini is not connected to an ArmorIQ account yet. Run `armoriq login --product armorgemini` " +
+      "in a terminal to authenticate (it opens the browser and writes ~/.armoriq/credentials.json). " +
+      "If you have not installed the plugin yet: `curl -fsSL https://armoriq.ai/install_armorgemini.sh | bash`.",
+    systemMessage: "🛡️ ArmorGemini not connected - run `armoriq login`"
   };
 }
 
