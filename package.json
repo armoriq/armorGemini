@@ -1,0 +1,30 @@
+{
+  "name": "armorgemini",
+  "version": "0.1.0",
+  "description": "Intent-based security enforcement plugin for Gemini CLI.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "hook:before-tool": "node scripts/hook-router.mjs before-tool",
+    "hook:after-tool": "node scripts/hook-router.mjs after-tool",
+    "hook:session-start": "node scripts/hook-router.mjs session-start",
+    "hook:session-end": "node scripts/hook-router.mjs session-end"
+  },
+  "keywords": [
+    "gemini-cli",
+    "security",
+    "policy",
+    "audit",
+    "intent",
+    "armoriq"
+  ],
+  "author": {
+    "name": "ArmorIQ",
+    "email": "license@armoriq.io"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-session-start",
+            "type": "command",
+            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs session-start"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-before-tool",
+            "type": "command",
+            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs before-tool"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-after-tool",
+            "type": "command",
+            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs after-tool"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-session-end",
+            "type": "command",
+            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs session-end"
+          }
+        ]
+      }
+    ]
+  }
+}
