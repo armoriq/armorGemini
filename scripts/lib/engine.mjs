@@ -1,57 +1,83 @@
-// ArmorGemini core engine. Handles the four Gemini lifecycle events:
-//   - SessionStart:  initialize session state
-//   - BeforeTool:    policy check + intent verification (enforcement point)
-//   - AfterTool:     append audit log
-//   - SessionEnd:    session cleanup
-//
-// Each handler returns the Gemini-shaped decision object.
+// ArmorGemini engine (backend-only).
+// Every enforcement decision and every audit record flows through the
+// ArmorIQ IAP backend. If the plugin is not configured (missing API key),
+// hooks fail closed: every tool call is denied with a "not configured" reason.
 
-import { evaluate } from "./policy.mjs";
-import { appendAuditLine } from "./fs-store.mjs";
+import { loadConfig } from "./config.mjs";
+import { verifyStep, sendAudit } from "./backend-client.mjs";
 import { writeLog } from "./hook-io.mjs";
 
+function sanitizeInput(input) {
+  const denyKeys = /(password|token|secret|api[_-]?key|authorization)/i;
+  const out = {};
+  for (const [k, v] of Object.entries(input || {})) {
+    if (denyKeys.test(k)) out[k] = "***redacted***";
+    else if (typeof v === "string" && v.length > 800) out[k] = v.slice(0, 800) + `…(+${v.length - 800} chars)`;
+    else out[k] = v;
+  }
+  return out;
+}
+
+function notConfiguredDecision() {
+  return {
+    decision: "deny",
+    reason:
+      "ArmorGemini is not connected to an ArmorIQ account yet. Run `armoriq login --product armorgemini` " +
+      "in a terminal to authenticate (it opens the browser and writes ~/.armoriq/credentials.json). " +
+      "If you have not installed the plugin yet: `curl -fsSL https://armoriq.ai/install_armorgemini.sh | bash`.",
+    systemMessage: "🛡️ ArmorGemini not connected - run `armoriq login`"
+  };
+}
+
 export async function onSessionStart(payload) {
-  writeLog(`SessionStart: session=${payload?.session_id || "?"} cwd=${payload?.cwd || "?"}`);
+  const config = loadConfig();
+  writeLog(
+    `SessionStart session=${payload?.session_id || "?"} cwd=${payload?.cwd || "?"} configured=${config.isConfigured}`
+  );
   return {};
 }
 
 export async function onSessionEnd(payload) {
-  writeLog(`SessionEnd: session=${payload?.session_id || "?"}`);
+  writeLog(`SessionEnd session=${payload?.session_id || "?"}`);
   return {};
 }
 
 export async function onBeforeTool(payload) {
+  const config = loadConfig();
+  if (!config.isConfigured) {
+    writeLog(
+      `DENY ${payload?.tool_name || "?"} - plugin not configured (missing ARMORIQ_API_KEY)`
+    );
+    return notConfiguredDecision();
+  }
+
   const toolName = payload?.tool_name || "";
   const toolInput = payload?.tool_input || {};
-  const session = payload?.session_id || "";
+  const sessionId = payload?.session_id || "";
+  const description = typeof toolInput.description === "string" ? toolInput.description : undefined;
 
-  const result = await evaluate({ toolName, toolInput });
-
-  await appendAuditLine({
-    event: "BeforeTool",
-    at: new Date().toISOString(),
-    session,
-    tool: toolName,
-    input: sanitize(toolInput),
-    verdict: result.verdict,
-    rule: result.rule ? { id: result.rule.id, verb: result.rule.verb, target: result.rule.target } : null
+  const verdict = await verifyStep(config, {
+    sessionId,
+    toolName,
+    toolInput,
+    description
   });
 
-  if (result.verdict === "deny") {
-    writeLog(`DENY ${toolName} — ${result.reason}`);
+  if (verdict.fatal) {
+    writeLog(`FATAL DENY ${toolName} - ${verdict.reason}`);
     return {
       decision: "deny",
-      reason: result.reason,
-      systemMessage: `🛡️ ArmorGemini blocked ${toolName}`
+      reason: verdict.reason,
+      systemMessage: "🛡️ ArmorGemini fatal auth error"
     };
   }
 
-  if (result.verdict === "hold") {
-    writeLog(`HOLD ${toolName} — ${result.reason}`);
+  if (!verdict.allowed) {
+    writeLog(`DENY ${toolName} - ${verdict.reason}`);
     return {
       decision: "deny",
-      reason: `${result.reason} Confirm with the user before retrying.`,
-      systemMessage: `⏸️ ArmorGemini held ${toolName} for approval`
+      reason: verdict.reason || `Denied by ArmorIQ policy`,
+      systemMessage: `🛡️ ArmorGemini blocked ${toolName}`
     };
   }
 
@@ -60,38 +86,24 @@ export async function onBeforeTool(payload) {
 }
 
 export async function onAfterTool(payload) {
+  const config = loadConfig();
+  if (!config.isConfigured) return {};
+
   const toolName = payload?.tool_name || "";
-  const session = payload?.session_id || "";
+  const sessionId = payload?.session_id || "";
   const summary =
     payload?.tool_response?.returnDisplay?.summary ||
     (payload?.tool_response?.llmContent ? String(payload.tool_response.llmContent).slice(0, 200) : "");
 
-  await appendAuditLine({
+  const res = await sendAudit(config, {
     event: "AfterTool",
     at: new Date().toISOString(),
-    session,
-    tool: toolName,
-    input: sanitize(payload?.tool_input || {}),
+    session_id: sessionId,
+    tool_name: toolName,
+    tool_input: sanitizeInput(payload?.tool_input || {}),
     result_summary: summary
   });
 
-  writeLog(`Audited ${toolName}`);
+  writeLog(`Audit ${toolName} sent (ok=${res.ok})`);
   return {};
-}
-
-// Minimal parameter sanitizer. Drops obvious secrets by key name.
-// Grows later: full regex-based redaction of common secret shapes.
-function sanitize(input) {
-  const denyKeys = /(password|token|secret|api[_-]?key|authorization)/i;
-  const out = {};
-  for (const [k, v] of Object.entries(input || {})) {
-    if (denyKeys.test(k)) {
-      out[k] = "***redacted***";
-    } else if (typeof v === "string" && v.length > 800) {
-      out[k] = v.slice(0, 800) + `…(+${v.length - 800} chars)`;
-    } else {
-      out[k] = v;
-    }
-  }
-  return out;
 }
