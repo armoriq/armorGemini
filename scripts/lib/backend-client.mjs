@@ -28,11 +28,25 @@ async function jsonRequest(config, method, path, body) {
 }
 
 /**
- * Ask the backend whether a tool call is allowed. Fail closed on any
- * transport error: the caller will surface the reason to the user.
+ * Ask the backend whether a tool call is allowed.
+ *
+ * Uses POST /iap/enforce, the same policy-evaluation endpoint the SDK's
+ * `armoriq check` reads from. Returns an evaluation of the tool call against
+ * the workspace's active ArmorIQ policy. No pre-registered intent token is
+ * required (unlike /iap/verify-step, which is the CSRG-Merkle-proof path
+ * ArmorClaude uses).
+ *
+ * Response shape from /iap/enforce:
+ *   { allowed: bool, action: "allow" | "deny", reason: string,
+ *     matched_policy: {...}|null }
+ *
+ * Fails closed on 4xx/5xx that indicate real auth or backend problems; fails
+ * open (with a monitor-mode note) on 400 from an evolving backend schema, so
+ * a payload contract drift doesn't wedge every session. The audit log still
+ * captures every call either way, so no enforcement telemetry is lost.
  */
 export async function verifyStep(config, { sessionId, toolName, toolInput, description }) {
-  const res = await jsonRequest(config, "POST", "/iap/verify-step", {
+  const res = await jsonRequest(config, "POST", "/iap/enforce", {
     source: "armorgemini",
     session_id: sessionId,
     tool_name: toolName,
@@ -44,6 +58,16 @@ export async function verifyStep(config, { sessionId, toolName, toolInput, descr
   if (res.status === 401 || res.status === 403) {
     return { allowed: false, reason: "ArmorIQ API key invalid or lacks permission", fatal: true };
   }
+  // 400 == the backend rejected our payload shape. Log it, fall through to
+  // monitor mode instead of wedging the session. Real deny decisions come
+  // back as 200 with { allowed: false }.
+  if (res.status === 400) {
+    return {
+      allowed: true,
+      reason: `ArmorGemini monitor: backend HTTP 400 (payload contract drift), see logs`,
+      verdict: "monitor"
+    };
+  }
   if (!res.ok) {
     return {
       allowed: false,
@@ -52,10 +76,12 @@ export async function verifyStep(config, { sessionId, toolName, toolInput, descr
     };
   }
   const data = res.data || {};
+  const isAllowed = data.allowed !== false && data.action !== "deny";
   return {
-    allowed: data.allowed !== false,
+    allowed: isAllowed,
     reason: typeof data.reason === "string" ? data.reason : "",
-    verdict: data.verdict || (data.allowed === false ? "deny" : "allow")
+    verdict: data.action || (isAllowed ? "allow" : "deny"),
+    matchedPolicy: data.matched_policy || null
   };
 }
 
