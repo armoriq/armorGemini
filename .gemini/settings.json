@@ -7,7 +7,7 @@
           {
             "name": "armorgemini-session-start",
             "type": "command",
-            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs session-start"
+            "command": "node __ARMORGEMINI_HOME__/scripts/hook-router.mjs session-start"
           }
         ]
       }
@@ -19,7 +19,7 @@
           {
             "name": "armorgemini-before-tool",
             "type": "command",
-            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs before-tool"
+            "command": "node __ARMORGEMINI_HOME__/scripts/hook-router.mjs before-tool"
           }
         ]
       }
@@ -31,7 +31,7 @@
           {
             "name": "armorgemini-after-tool",
             "type": "command",
-            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs after-tool"
+            "command": "node __ARMORGEMINI_HOME__/scripts/hook-router.mjs after-tool"
           }
         ]
       }
@@ -43,7 +43,7 @@
           {
             "name": "armorgemini-session-end",
             "type": "command",
-            "command": "node /Users/hariharasudhan/Armoriq/armorGemini/scripts/hook-router.mjs session-end"
+            "command": "node __ARMORGEMINI_HOME__/scripts/hook-router.mjs session-end"
           }
         ]
       }
