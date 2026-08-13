@@ -11,7 +11,7 @@ ArmorGemini is **backend-only**: every enforcement decision and every audit reco
 ```
 User Prompt ──► SessionStart hook
                                                              │
-Tool Call ──► BeforeTool hook ──► POST /iap/verify-step ──► allow | deny
+Tool Call ──► BeforeTool hook ──► POST /iap/enforce ──► allow | deny
                                                              │
 Tool Result ──► AfterTool hook ──► POST /iap/audit (best-effort)
 ```
@@ -77,7 +77,7 @@ Examples:
 | Hook | What ArmorGemini does |
 |---|---|
 | `SessionStart` | Logs session_id, cwd, and configured state. |
-| `BeforeTool` | Calls `POST /iap/verify-step` with tool name, input, session id, and Gemini's per-tool `description`. Returns `decision: "deny"` with the backend's reason if disallowed. |
+| `BeforeTool` | Calls `POST /iap/enforce` with tool name, input, session id, and Gemini's per-tool `description`. Returns `decision: "deny"` with the backend's reason if disallowed. |
 | `AfterTool` | Sanitizes input (redacts obvious secret-shaped keys, truncates long strings), then best-effort `POST /iap/audit`. Never blocks. |
 | `SessionEnd` | Logs session end. |
 
@@ -88,15 +88,6 @@ node --test tests/*.test.mjs
 ```
 
 Tests stub `globalThis.fetch` per case to simulate backend responses (allow, deny, 401, network error). No real network is hit.
-
-## Roadmap
-
-- **v0.1** - local-mode spike (superseded).
-- **v0.2** - backend-only + /armor slash commands (this release).
-- **v0.3** - policy templates surfaced through /armor:template with dashboard-side template library.
-- **v0.4** - signed intent tokens + CSRG proofs.
-- **v0.5** - intent-drift detection using Gemini's per-tool `description` field vs the registered plan.
-- **v0.6** - packaged as a Gemini CLI extension for one-command install.
 
 ## Provenance
 
