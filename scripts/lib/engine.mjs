@@ -34,7 +34,16 @@ export async function onSessionStart(payload) {
   writeLog(
     `SessionStart session=${payload?.session_id || "?"} cwd=${payload?.cwd || "?"} configured=${config.isConfigured}`
   );
-  return {};
+  if (!config.isConfigured) {
+    return {
+      systemMessage:
+        "🛡️ ArmorGemini not connected. Run `armoriq login --product armorgemini` to enable enforcement."
+    };
+  }
+  return {
+    systemMessage:
+      "🛡️ ArmorGemini active (ENFORCING). Every tool call is checked against your ArmorIQ policy."
+  };
 }
 
 export async function onSessionEnd(payload) {
@@ -82,7 +91,12 @@ export async function onBeforeTool(payload) {
   }
 
   writeLog(`ALLOW ${toolName}`);
-  return { decision: "allow" };
+  return {
+    decision: "allow",
+    systemMessage: verdict.matchedPolicy
+      ? `🛡️ ArmorGemini: ${toolName} allowed (rule: ${verdict.matchedPolicy.name || verdict.matchedPolicy.id || "matched"})`
+      : `🛡️ ArmorGemini: ${toolName} allowed (no matching policy)`
+  };
 }
 
 export async function onAfterTool(payload) {
