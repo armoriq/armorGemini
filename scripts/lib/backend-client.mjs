@@ -98,50 +98,166 @@ export async function sendAudit(config, entry) {
 }
 
 /**
- * Fetch the current policy rules for display in /armor:list.
+ * Fetch the current active policy for display in /armor:list.
+ * The backend returns { policy } where policy is the same PolicyProfile
+ * document ArmorClaude uses. Parsed here into a flat rule list for the CLI
+ * to render.
  */
 export async function fetchPolicy(config) {
-  const res = await jsonRequest(config, "GET", "/policies/current");
+  const res = await jsonRequest(config, "GET", "/policies/profiles/active");
   if (!res.ok) return { ok: false, status: res.status, error: res.error };
-  return { ok: true, policy: res.data };
+  const policy = res.data?.policy;
+  const statements = Array.isArray(policy?.statements) ? policy.statements : [];
+  return {
+    ok: true,
+    policy: {
+      name: policy?.metadata?.name || "current",
+      description: policy?.metadata?.description || "",
+      defaultDecision: policy?.defaults?.decision || "allow",
+      rules: statements.map((s) => ({
+        id: s.id,
+        verb: s.effect,
+        target: s.action || "*",
+        note: s.description || ""
+      }))
+    }
+  };
 }
 
-/**
- * Stage a policy change as a draft proposal. The dashboard-side confirmation
- * step is deliberately not exposed here, matching ArmorClaude's convention.
- */
-export async function proposePolicyChange(config, { verb, target, note, reason }) {
+// ---------------------------------------------------------------------------
+// Policy profile lifecycle (draft -> propose)
+// ---------------------------------------------------------------------------
+// The backend PUT /policies/profiles/draft accepts { policy, orgId } where
+// `policy` is a full PolicyProfile document (same shape ArmorClaude produces).
+// POST /policies/profiles/propose then converts the draft into a pending
+// proposal a human confirms on the dashboard.
+//
+// For /armor:add we build a minimal single-statement profile: default allow,
+// one deny/allow/hold statement on the requested tool. This REPLACES the
+// active policy when confirmed; extending an existing policy without
+// clobbering it requires a fetch-modify-push flow that lives in the
+// dashboard today.
+
+const POLICY_SCHEMA_VERSION = "armor.policy.v1";
+
+function policyStatementId(prefix, target) {
+  return `${prefix}-${String(target || "any").replace(/[^a-z0-9_-]+/gi, "-")}`;
+}
+
+function buildSingleStatementPolicy({ verb, target, note }) {
+  return {
+    schemaVersion: POLICY_SCHEMA_VERSION,
+    kind: "PolicyProfile",
+    metadata: {
+      name: "armorgemini-current",
+      description: "Staged from ArmorGemini /armor:add"
+    },
+    defaults: {
+      decision: "allow",
+      conflictResolution: "deny_overrides"
+    },
+    statements: [
+      {
+        id: policyStatementId(`armorgemini-${verb}`, target),
+        effect: verb,
+        action: target,
+        ...(note ? { description: note } : {})
+      }
+    ]
+  };
+}
+
+async function draftAndPropose(config, policy, reason) {
   const draft = await jsonRequest(config, "PUT", "/policies/profiles/draft", {
-    source: "armorgemini",
-    change: { verb, target, note: note || "" },
-    org_id: config.orgId
+    policy,
+    orgId: config.orgId || undefined
   });
   if (!draft.ok) {
-    return { ok: false, stage: "draft", status: draft.status, error: draft.error };
+    const backendMsg = Array.isArray(draft.data?.message)
+      ? draft.data.message.join("; ")
+      : draft.data?.message || draft.error;
+    return { ok: false, stage: "draft", status: draft.status, error: backendMsg };
   }
-
   const proposal = await jsonRequest(config, "POST", "/policies/profiles/propose", {
-    source: "armorgemini",
-    reason: reason || "Proposed via /armor",
-    org_id: config.orgId
+    reason: reason || "Proposed via ArmorGemini /armor",
+    orgId: config.orgId || undefined
   });
   if (!proposal.ok) {
-    return { ok: false, stage: "propose", status: proposal.status, error: proposal.error };
+    const backendMsg = Array.isArray(proposal.data?.message)
+      ? proposal.data.message.join("; ")
+      : proposal.data?.message || proposal.error;
+    return { ok: false, stage: "propose", status: proposal.status, error: backendMsg };
   }
   return { ok: true, proposal: proposal.data };
 }
 
 /**
- * Apply a named policy template (lockdown, strict-read-only, balanced, etc).
- * Same lifecycle as proposePolicyChange - stages a draft for dashboard
- * confirmation.
+ * Stage a policy change as a draft proposal.
  */
+export async function proposePolicyChange(config, { verb, target, note, reason }) {
+  const policy = buildSingleStatementPolicy({ verb, target, note });
+  return draftAndPropose(config, policy, reason);
+}
+
+// ---------------------------------------------------------------------------
+// Named templates (lockdown / strict-read-only / balanced)
+// ---------------------------------------------------------------------------
+// Backend has no dedicated /policies/profiles/template endpoint, so we build
+// the template locally and run it through the same draft -> propose flow.
+// The three templates below are illustrative starter policies; a future
+// iteration can pull server-managed templates instead.
+
+const TEMPLATES = {
+  lockdown: {
+    metadata: {
+      name: "armorgemini-lockdown",
+      description: "Lockdown: deny every tool. Nothing runs until a human explicitly relaxes this."
+    },
+    defaults: { decision: "deny", conflictResolution: "deny_overrides" },
+    statements: [
+      { id: "armorgemini-lockdown-catch-all", effect: "deny", action: "*", description: "Baseline deny for every tool" }
+    ]
+  },
+  "strict-read-only": {
+    metadata: {
+      name: "armorgemini-strict-read-only",
+      description: "Strict read-only: allow file reads and lists, deny writes and network."
+    },
+    defaults: { decision: "deny", conflictResolution: "deny_overrides" },
+    statements: [
+      { id: "armorgemini-allow-read-file", effect: "allow", action: "read_file" },
+      { id: "armorgemini-allow-list-dir", effect: "allow", action: "list_directory" },
+      { id: "armorgemini-allow-search", effect: "allow", action: "search_file_content" },
+      { id: "armorgemini-allow-glob", effect: "allow", action: "glob" }
+    ]
+  },
+  balanced: {
+    metadata: {
+      name: "armorgemini-balanced",
+      description: "Balanced: allow reads and controlled writes, deny network egress and destructive shell."
+    },
+    defaults: { decision: "allow", conflictResolution: "deny_overrides" },
+    statements: [
+      { id: "armorgemini-deny-fetch", effect: "deny", action: "web_fetch", description: "No outbound HTTP" },
+      { id: "armorgemini-deny-search", effect: "deny", action: "google_web_search", description: "No web search" },
+      { id: "armorgemini-deny-shell-destroy", effect: "deny", action: "run_shell_command", description: "Shell disabled by default; loosen per-command later" }
+    ]
+  }
+};
+
 export async function proposePolicyTemplate(config, templateName) {
-  const res = await jsonRequest(config, "POST", "/policies/profiles/template", {
-    source: "armorgemini",
-    template: templateName,
-    org_id: config.orgId
-  });
-  if (!res.ok) return { ok: false, status: res.status, error: res.error };
-  return { ok: true, proposal: res.data };
+  const t = TEMPLATES[templateName];
+  if (!t) {
+    return {
+      ok: false,
+      status: 0,
+      error: `Unknown template "${templateName}". Available: ${Object.keys(TEMPLATES).join(", ")}.`
+    };
+  }
+  const policy = {
+    schemaVersion: POLICY_SCHEMA_VERSION,
+    kind: "PolicyProfile",
+    ...t
+  };
+  return draftAndPropose(config, policy, `Applied template "${templateName}" via ArmorGemini`);
 }

@@ -40,12 +40,14 @@ async function cmdList() {
     console.log(`Could not fetch policy from ArmorIQ (HTTP ${res.status}). ${res.error || ""}`.trim());
     return;
   }
-  const rules = (res.policy && res.policy.rules) || [];
+  const policy = res.policy || {};
+  const rules = policy.rules || [];
+  console.log(`Current ArmorIQ policy: ${policy.name || "current"} (default: ${policy.defaultDecision || "allow"})`);
   if (rules.length === 0) {
-    console.log("No policy rules found. Use /armor:add to create one, or /armor:template to apply a starter template.");
+    console.log("  (no explicit rules — every tool falls to the default decision)");
+    console.log("Use /armor:add to create one, or /armor:template to apply a starter template.");
     return;
   }
-  console.log("Current ArmorIQ policy:");
   for (const r of rules) {
     const note = r.note ? ` - ${r.note}` : "";
     console.log(`  [${r.id || "?"}] ${r.verb || "?"} ${r.target || "?"}${note}`);
