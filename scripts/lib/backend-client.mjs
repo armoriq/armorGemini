@@ -140,8 +140,74 @@ export async function fetchPolicy(config) {
 
 const POLICY_SCHEMA_VERSION = "armor.policy.v1";
 
+// The armor.policy.v1 schema names effects "permit" / "forbid" (from the
+// underlying Rego/OPA vocabulary), not the "allow" / "deny" verbs the CLI
+// exposes to users. Also "hold" is a plugin-side concept not represented on
+// the backend — we translate it into "forbid" so the tool is blocked on
+// the workspace policy while a human decides.
+const VERB_TO_EFFECT = {
+  allow: "permit",
+  deny: "forbid",
+  hold: "forbid"
+};
+
+// The backend validates statements[].action.eq against a Claude-Code-specific
+// tool registry (KNOWN_TOOLS in the policy-ir schema on the server). Gemini
+// CLI uses its own naming (read_file, run_shell_command, web_fetch, ...) so
+// we translate here. Anything not in the map is passed through verbatim,
+// which surfaces the backend's error to the user unchanged.
+//
+// Long-term this belongs on the backend (Gemini tools should be first-class
+// entries in KNOWN_TOOLS); today the mapping is client-side so the demo
+// flow can ship.
+const GEMINI_TO_BACKEND_TOOL = {
+  "*": "*",
+  read_file: "Read",
+  write_file: "Write",
+  edit: "Edit",
+  edit_file: "Edit",
+  run_shell_command: "Bash",
+  run_shell: "Bash",
+  shell: "Bash",
+  bash: "Bash",
+  glob: "Glob",
+  list_directory: "Glob",
+  ls: "Glob",
+  search_file_content: "Grep",
+  grep: "Grep",
+  find: "Grep",
+  web_fetch: "WebFetch",
+  fetch: "WebFetch",
+  http: "WebFetch",
+  google_web_search: "WebSearch",
+  web_search: "WebSearch",
+  search: "WebSearch"
+};
+
+function mapToolName(target) {
+  const key = String(target || "").toLowerCase();
+  return GEMINI_TO_BACKEND_TOOL[key] || target;
+}
+
 function policyStatementId(prefix, target) {
   return `${prefix}-${String(target || "any").replace(/[^a-z0-9_-]+/gi, "-")}`;
+}
+
+// Build a single statement in the armor.policy.v1 shape the backend actually
+// validates against: effect is permit/forbid, principal/action/resource are
+// typed objects, conditions is always an array. No description field on the
+// statement — the backend rejects it as an unknown key.
+function buildStatement({ verb, target }) {
+  const effect = VERB_TO_EFFECT[verb] || "forbid";
+  const backendTool = mapToolName(target);
+  return {
+    id: policyStatementId(`armorgemini-${verb}`, target),
+    effect,
+    principal: { type: "agent", id: "gemini-cli" },
+    action: { type: "tool", eq: backendTool },
+    resource: { type: "workspace", scope: "current" },
+    conditions: []
+  };
 }
 
 function buildSingleStatementPolicy({ verb, target, note }) {
@@ -150,20 +216,13 @@ function buildSingleStatementPolicy({ verb, target, note }) {
     kind: "PolicyProfile",
     metadata: {
       name: "armorgemini-current",
-      description: "Staged from ArmorGemini /armor:add"
+      description: note ? `Staged from ArmorGemini /armor:add - ${note}` : "Staged from ArmorGemini /armor:add"
     },
     defaults: {
       decision: "allow",
       conflictResolution: "deny_overrides"
     },
-    statements: [
-      {
-        id: policyStatementId(`armorgemini-${verb}`, target),
-        effect: verb,
-        action: target,
-        ...(note ? { description: note } : {})
-      }
-    ]
+    statements: [buildStatement({ verb, target })]
   };
 }
 
@@ -215,7 +274,7 @@ const TEMPLATES = {
     },
     defaults: { decision: "deny", conflictResolution: "deny_overrides" },
     statements: [
-      { id: "armorgemini-lockdown-catch-all", effect: "deny", action: "*", description: "Baseline deny for every tool" }
+      buildStatement({ verb: "deny", target: "*" })
     ]
   },
   "strict-read-only": {
@@ -225,10 +284,10 @@ const TEMPLATES = {
     },
     defaults: { decision: "deny", conflictResolution: "deny_overrides" },
     statements: [
-      { id: "armorgemini-allow-read-file", effect: "allow", action: "read_file" },
-      { id: "armorgemini-allow-list-dir", effect: "allow", action: "list_directory" },
-      { id: "armorgemini-allow-search", effect: "allow", action: "search_file_content" },
-      { id: "armorgemini-allow-glob", effect: "allow", action: "glob" }
+      buildStatement({ verb: "allow", target: "read_file" }),
+      buildStatement({ verb: "allow", target: "list_directory" }),
+      buildStatement({ verb: "allow", target: "search_file_content" }),
+      buildStatement({ verb: "allow", target: "glob" })
     ]
   },
   balanced: {
@@ -238,9 +297,9 @@ const TEMPLATES = {
     },
     defaults: { decision: "allow", conflictResolution: "deny_overrides" },
     statements: [
-      { id: "armorgemini-deny-fetch", effect: "deny", action: "web_fetch", description: "No outbound HTTP" },
-      { id: "armorgemini-deny-search", effect: "deny", action: "google_web_search", description: "No web search" },
-      { id: "armorgemini-deny-shell-destroy", effect: "deny", action: "run_shell_command", description: "Shell disabled by default; loosen per-command later" }
+      buildStatement({ verb: "deny", target: "web_fetch" }),
+      buildStatement({ verb: "deny", target: "google_web_search" }),
+      buildStatement({ verb: "deny", target: "run_shell_command" })
     ]
   }
 };
