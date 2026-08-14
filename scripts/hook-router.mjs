@@ -1,17 +1,26 @@
 #!/usr/bin/env node
 // ArmorGemini hook router.
-// Reads the Gemini CLI hook payload from stdin, dispatches to the right handler
-// (before-tool / after-tool / session-start / session-end), and prints the
-// Gemini-shaped decision JSON to stdout. All diagnostics go to stderr.
+// Reads the Gemini CLI hook payload from stdin, dispatches to the right
+// handler, and prints the Gemini-shaped decision JSON to stdout. All
+// diagnostics go to stderr.
 
 import { readStdin, writeDecision, writeError } from "./lib/hook-io.mjs";
-import { onBeforeTool } from "./lib/engine.mjs";
-import { onAfterTool, onSessionStart, onSessionEnd } from "./lib/engine.mjs";
+import {
+  onBeforeTool,
+  onAfterTool,
+  onSessionStart,
+  onSessionEnd,
+  onBeforeAgent,
+  onBeforeToolSelection
+} from "./lib/engine.mjs";
 
 const event = process.argv[2];
 
 if (!event) {
-  writeError("hook-router requires an event argument: before-tool | after-tool | session-start | session-end");
+  writeError(
+    "hook-router requires an event argument: before-tool | after-tool | " +
+      "session-start | session-end | before-agent | before-tool-selection"
+  );
   process.exit(2);
 }
 
@@ -31,11 +40,20 @@ try {
     case "session-end":
       writeDecision(await onSessionEnd(payload));
       break;
+    case "before-agent":
+      writeDecision(await onBeforeAgent(payload));
+      break;
+    case "before-tool-selection":
+      writeDecision(await onBeforeToolSelection(payload));
+      break;
     default:
       writeError(`unknown event: ${event}`);
       process.exit(2);
   }
 } catch (err) {
   writeError(`ArmorGemini hook error: ${err?.stack || err?.message || String(err)}`);
+  // Fail open on router-level bugs so we do not brick the user's session
+  // over a bug in our own code. Layered enforcement in the engine has
+  // already fired for real deny cases.
   writeDecision({ decision: "allow" });
 }

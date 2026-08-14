@@ -12,6 +12,30 @@
         ]
       }
     ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-before-agent",
+            "type": "command",
+            "command": "node __ARMORGEMINI_HOME__/scripts/hook-router.mjs before-agent"
+          }
+        ]
+      }
+    ],
+    "BeforeToolSelection": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-before-tool-selection",
+            "type": "command",
+            "command": "node __ARMORGEMINI_HOME__/scripts/hook-router.mjs before-tool-selection"
+          }
+        ]
+      }
+    ],
     "BeforeTool": [
       {
         "matcher": "*",

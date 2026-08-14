@@ -1,6 +1,6 @@
 {
   "name": "armorgemini",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Intent-based security enforcement plugin for Gemini CLI.",
   "type": "module",
   "private": true,
@@ -12,10 +12,18 @@
     "hook:before-tool": "node scripts/hook-router.mjs before-tool",
     "hook:after-tool": "node scripts/hook-router.mjs after-tool",
     "hook:session-start": "node scripts/hook-router.mjs session-start",
-    "hook:session-end": "node scripts/hook-router.mjs session-end"
+    "hook:session-end": "node scripts/hook-router.mjs session-end",
+    "hook:before-agent": "node scripts/hook-router.mjs before-agent",
+    "hook:before-tool-selection": "node scripts/hook-router.mjs before-tool-selection",
+    "mcp": "node scripts/policy-mcp.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "zod": "^3.23.8"
   },
   "keywords": [
     "gemini-cli",
+    "gemini-cli-extension",
     "security",
     "policy",
     "audit",

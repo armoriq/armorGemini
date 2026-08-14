@@ -1,19 +1,38 @@
 # ArmorGemini
 
-ArmorIQ intent-based security enforcement for Gemini CLI. Registers on Gemini's lifecycle hooks and enforces workspace policy on every tool call.
+ArmorIQ intent-based security enforcement for Gemini CLI. Every tool call is checked against a per-turn intent plan AND your ArmorIQ workspace policy before it runs.
 
-**Status:** v0.2.0. Backend-authoritative. Requires an ArmorIQ API key.
+**Status:** v0.3.0. Real intent-plan enforcement via a bundled MCP server. Requires an ArmorIQ API key.
 
 ## Design
 
-ArmorGemini is **backend-only**: every enforcement decision and every audit record flows through the ArmorIQ IAP backend. There is no local policy fallback and no local audit persistence. If the plugin is not configured with an API key, hooks fail closed and every tool call is denied with a clear "not configured" message.
+ArmorGemini is **backend-authoritative for policy** and **local-first for intent drift**. Every enforcement decision that catches drift fires client-side without waiting on the network; every policy decision flows through the ArmorIQ IAP backend. If the plugin is not configured with an API key, hooks fail closed and every tool call is denied with a clear "not configured" message.
 
 ```
-User Prompt ──► SessionStart hook
-                                                             │
-Tool Call ──► BeforeTool hook ──► POST /iap/enforce ──► allow | deny
-                                                             │
-Tool Result ──► AfterTool hook ──► POST /iap/audit (best-effort)
+User Prompt ──► SessionStart hook             (banner: ENFORCING)
+                       │
+                       ▼
+                BeforeAgent hook               (inject "declare your plan first" directive)
+                       │
+                       ▼
+                Model calls register_intent_plan (armorgemini-policy MCP tool)
+                       │
+                       ▼
+                BeforeToolSelection hook        (whitelist the model's tool surface to just the plan)
+                       │
+                       ▼
+Tool Call ──► BeforeTool hook  ──► 1. is tool in plan?          (drift check, local, no network)
+                                    2. is plan still fresh?      (TTL)
+                                    3. POST /iap/enforce         (policy check, backend)
+                       │
+                       ▼
+                allow | deny
+                       │
+                       ▼
+Tool Result ──► AfterTool hook  ──► POST /iap/audit (best-effort)
+                       │
+                       ▼
+                SessionEnd hook                 (clear the plan file)
 ```
 
 ## Install
@@ -28,10 +47,11 @@ The installer:
 
 1. Installs `@armoriq/sdk` globally (adds the `armoriq` CLI to your PATH)
 2. Downloads the plugin into `~/.armoriq/armorGemini`
-3. Wires ArmorGemini's hooks into `~/.gemini/settings.json`
-4. Registers the `/armor:*` slash commands in `~/.gemini/commands/armor/`
-5. Runs `armoriq login --product armorgemini` which opens your browser, mints an API key, and writes it to `~/.armoriq/credentials.json`
-6. Verifies the hook fires
+3. Wires the six ArmorGemini hooks into `~/.gemini/settings.json`
+4. Wires the `armorgemini-policy` MCP server via `gemini-extension.json`
+5. Registers the `/armor:*` slash commands in `~/.gemini/commands/armor/`
+6. Runs `armoriq login --product armorgemini` which opens your browser, mints an API key, and writes it to `~/.armoriq/credentials.json`
+7. Verifies the hooks fire
 
 After that first run there is nothing more to do. The plugin picks up the key from `~/.armoriq/credentials.json` on every subsequent Gemini CLI session.
 
@@ -45,6 +65,9 @@ End users should not need these. For local dev or CI:
 | `ARMORIQ_BACKEND_ENDPOINT` | Override backend URL. Default `https://api.armoriq.ai`. |
 | `ARMORIQ_ORG_ID` | Scope the plugin to a specific ArmorIQ org. |
 | `ARMORGEMINI_TIMEOUT_MS` | Per-request timeout to the backend (default 8000). |
+| `ARMORGEMINI_DATA_DIR` | Where per-session plan files live. Default `~/.gemini/armorgemini`. |
+| `ARMORGEMINI_INTENT_REQUIRED` | Set to `false` to disable intent-plan enforcement and fall back to policy-only mode (v0.2 behavior). |
+| `ARMORGEMINI_PLAN_TTL_SECONDS` | Age (in seconds) after which a stored plan is treated as stale. Default 600. |
 
 ### Reconnecting or switching accounts
 
@@ -52,6 +75,30 @@ End users should not need these. For local dev or CI:
 armoriq login --product armorgemini    # re-runs the browser auth, overwrites credentials.json
 armoriq logout                          # clears credentials.json
 ```
+
+## The `armorgemini-policy` MCP server
+
+Bundled with the plugin, declared in `gemini-extension.json` under `mcpServers`. Gemini CLI launches it automatically on session start. Three tools:
+
+| Tool | Purpose |
+|---|---|
+| `register_intent_plan` | Declare your plan for the current turn. Must be called before any other tool when `ARMORGEMINI_INTENT_REQUIRED=true` (the default). |
+| `reset_intent_plan` | Clear the current plan explicitly. The next tool call will be denied until a fresh plan is registered. |
+| `get_intent_plan` | Read the currently registered plan for a session. Informational. |
+
+The plan shape:
+
+```json
+{
+  "goal": "One-line summary of the task",
+  "steps": [
+    { "action": "read_file", "description": "Peek at the top of README" },
+    { "action": "list_directory", "description": "See what else is in the dir" }
+  ]
+}
+```
+
+Tools listed in `steps[].action` are allowed for the rest of the turn. Anything else is denied at BeforeTool as intent drift.
 
 ## The `/armor` slash commands
 
@@ -76,10 +123,12 @@ Examples:
 
 | Hook | What ArmorGemini does |
 |---|---|
-| `SessionStart` | Logs session_id, cwd, and configured state. |
-| `BeforeTool` | Calls `POST /iap/enforce` with tool name, input, session id, and Gemini's per-tool `description`. Returns `decision: "deny"` with the backend's reason if disallowed. |
+| `SessionStart` | Logs session_id, cwd, and configured state. Prints the ENFORCING banner. |
+| `BeforeAgent` | Injects a directive telling the model to call `register_intent_plan` (armorgemini-policy MCP) before any other tool. |
+| `BeforeToolSelection` | Whitelists the model's tool surface to just the plan (plus the plan-management tools). Structural: the model literally cannot see off-plan tools when it decides. |
+| `BeforeTool` | Two layers: (1) intent-drift check against the registered plan, (2) policy check via `POST /iap/enforce`. Either failing → deny. |
 | `AfterTool` | Sanitizes input (redacts obvious secret-shaped keys, truncates long strings), then best-effort `POST /iap/audit`. Never blocks. |
-| `SessionEnd` | Logs session end. |
+| `SessionEnd` | Clears the session's plan file. |
 
 ## Tests
 
@@ -87,11 +136,11 @@ Examples:
 node --test tests/*.test.mjs
 ```
 
-Tests stub `globalThis.fetch` per case to simulate backend responses (allow, deny, 401, network error). No real network is hit.
+Tests stub `globalThis.fetch` per case to simulate backend responses (allow, deny, 401, network error), and use a scratch data dir to exercise the intent-plan path without touching real state. No real network is hit.
 
 ## Provenance
 
-Ports the ArmorClaude enforcement model to Gemini CLI. Feasibility spike results: Gemini CLI's `BeforeTool` accepts `decision: "deny"` and surfaces both the reason and a `systemMessage` badge to the user; `AfterTool` gives us the full `tool_response` including LLM-facing content and display metadata. Gemini also exposes a per-tool-call `description` field (the model's own reasoning about the call) that gives us a second signal for intent-drift detection.
+Ports the ArmorClaude enforcement model to Gemini CLI. Gemini CLI's hook set is a superset of what Claude Code exposes: `BeforeAgent` is the per-turn hook (equivalent of Claude's `UserPromptSubmit`), `BeforeToolSelection` is a bonus tightening layer that Claude Code doesn't have (structurally hides off-plan tools from the model). The plugin bundles a stdio MCP server declared via `mcpServers` in the `gemini-extension.json` manifest, so intent-plan capture works natively without shell-side hacks.
 
 ## License
 
