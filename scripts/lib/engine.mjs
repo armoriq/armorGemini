@@ -131,13 +131,24 @@ export async function onBeforeAgent(payload) {
 }
 
 // ---------------------------------------------------------------------------
-// BeforeToolSelection — narrow the model's tool surface to just the plan.
-// Fires before the LLM decides which tool(s) to call. If a plan is
-// registered we return an `allowedFunctionNames` whitelist derived from the
-// plan; the model literally cannot see off-plan tools when it decides.
+// BeforeToolSelection — no-op for now.
 //
-// Our own MCP tools (register_intent_plan, reset_intent_plan, get_intent_plan)
-// are always allowed — otherwise the very first call would fail.
+// The design goal was to hand Gemini an `allowedFunctionNames` whitelist so
+// the model literally cannot see off-plan tools when it picks. Google's
+// Gemini API rejects that combination with:
+//
+//   Please set allowed_function_names only when function calling mode is ANY.
+//
+// mode: "ANY" would work with the whitelist but it forces the model to call
+// a tool on every turn, which breaks plain text turns (greetings, follow-up
+// questions, "thanks that helps"). Until we have a reliable per-turn signal
+// for "the model actually needs a tool this turn" we cannot use mode: ANY
+// safely, and mode: AUTO forbids the whitelist.
+//
+// Returning {} here disables the structural pre-filter and leaves
+// enforcement to the BeforeTool hook, which already denies off-plan tools
+// and off-plan tool inputs. Behavior is identical from a security posture
+// standpoint; we just lose the "the model never even sees the tool" bonus.
 // ---------------------------------------------------------------------------
 
 const ALWAYS_ALLOWED_TOOLS = [
@@ -146,44 +157,8 @@ const ALWAYS_ALLOWED_TOOLS = [
   "get_intent_plan"
 ];
 
-export async function onBeforeToolSelection(payload) {
-  const config = loadConfig();
-  if (!config.isConfigured || !config.intentRequired) return {};
-
-  const sessionId = payload?.session_id || "";
-  const plan = loadPlan(config.dataDir, sessionId);
-  if (!plan) {
-    // No plan yet. Whitelist only our own tools so the model has exactly
-    // one legal move: call register_intent_plan.
-    writeLog(`BeforeToolSelection session=${sessionId} no plan → whitelist=[armorgemini-policy tools only]`);
-    return {
-      hookSpecificOutput: {
-        hookEventName: "BeforeToolSelection",
-        toolConfig: {
-          mode: "AUTO",
-          allowedFunctionNames: [...ALWAYS_ALLOWED_TOOLS]
-        }
-      }
-    };
-  }
-
-  // Plan exists. Whitelist = plan.steps[].action ∪ our own tools.
-  // NOTE: Gemini's whitelist matches on function name exactly; if the plan
-  // used a canonical name that matches the CLI's tool registry, this
-  // works. If the model plans with a slightly different casing, our
-  // BeforeTool drift check (case-insensitive) still catches it.
-  const planned = planToolNames(plan);
-  const allowed = Array.from(new Set([...ALWAYS_ALLOWED_TOOLS, ...planned]));
-  writeLog(`BeforeToolSelection session=${sessionId} whitelist=[${allowed.join(",")}]`);
-  return {
-    hookSpecificOutput: {
-      hookEventName: "BeforeToolSelection",
-      toolConfig: {
-        mode: "AUTO",
-        allowedFunctionNames: allowed
-      }
-    }
-  };
+export async function onBeforeToolSelection(_payload) {
+  return {};
 }
 
 // ---------------------------------------------------------------------------

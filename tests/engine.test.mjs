@@ -366,33 +366,11 @@ test("v0.3 onBeforeAgent injects NOTHING in policy-only mode", async () => {
   });
 });
 
-test("v0.3 onBeforeToolSelection whitelists only the armorgemini-policy tools when no plan yet", async () => {
-  const dataDir = makeScratchDataDir();
-  try {
-    await withEnv({ ARMORIQ_API_KEY: "test-key", ARMORGEMINI_DATA_DIR: dataDir }, async () => {
-      const { onBeforeToolSelection } = await loadEngineFresh();
-      const decision = await onBeforeToolSelection({
-        ...basePayload,
-        hook_event_name: "BeforeToolSelection"
-      });
-      const allowed = decision?.hookSpecificOutput?.toolConfig?.allowedFunctionNames;
-      assert.ok(Array.isArray(allowed));
-      assert.ok(allowed.includes("register_intent_plan"));
-      assert.ok(!allowed.includes("read_file"), "no plan → only the plan-management tools should be whitelisted");
-    });
-  } finally {
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test("v0.3 onBeforeToolSelection whitelists plan tools + policy tools when a plan exists", async () => {
+test("v0.3 onBeforeToolSelection is a no-op (Gemini API rejects allowedFunctionNames with mode:AUTO; enforcement stays in BeforeTool)", async () => {
   const dataDir = makeScratchDataDir();
   writePlan(dataDir, "test-session", {
     goal: "Read README then list dir",
-    steps: [
-      { action: "read_file" },
-      { action: "list_directory" }
-    ]
+    steps: [{ action: "read_file" }, { action: "list_directory" }]
   });
   try {
     await withEnv({ ARMORIQ_API_KEY: "test-key", ARMORGEMINI_DATA_DIR: dataDir }, async () => {
@@ -401,12 +379,7 @@ test("v0.3 onBeforeToolSelection whitelists plan tools + policy tools when a pla
         ...basePayload,
         hook_event_name: "BeforeToolSelection"
       });
-      const allowed = decision?.hookSpecificOutput?.toolConfig?.allowedFunctionNames;
-      assert.ok(Array.isArray(allowed));
-      assert.ok(allowed.includes("read_file"));
-      assert.ok(allowed.includes("list_directory"));
-      assert.ok(allowed.includes("register_intent_plan"), "armorgemini-policy tools always in the whitelist");
-      assert.ok(!allowed.includes("web_fetch"), "off-plan tools must not appear in the whitelist");
+      assert.deepEqual(decision, {}, "BeforeToolSelection must return no toolConfig so Gemini API accepts the request");
     });
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
