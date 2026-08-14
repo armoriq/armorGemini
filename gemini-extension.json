@@ -1,0 +1,5 @@
+{
+  "name": "armorgemini",
+  "version": "0.2.0",
+  "description": "Intent-based security enforcement for Gemini CLI. Every tool call is checked against your ArmorIQ policy before it runs."
+}
