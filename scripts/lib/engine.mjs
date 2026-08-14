@@ -167,7 +167,19 @@ export async function onBeforeToolSelection(_payload) {
 
 function isMcpArmorTool(toolName) {
   const t = String(toolName || "").toLowerCase();
-  return ALWAYS_ALLOWED_TOOLS.some((n) => t === n || t.endsWith(`__${n}`));
+  // 1. Direct call by base name (unlikely under Gemini CLI but safe).
+  if (ALWAYS_ALLOWED_TOOLS.includes(t)) return true;
+  // 2. Gemini CLI's MCP tool naming: mcp_<server>_<tool>. Our server is
+  //    registered as "armorgemini-policy" in gemini-extension.json /
+  //    ~/.gemini/settings.json, so the tool shows up as
+  //    mcp_armorgemini-policy_register_intent_plan.
+  const geminiPrefix = "mcp_armorgemini-policy_";
+  if (t.startsWith(geminiPrefix)) {
+    return ALWAYS_ALLOWED_TOOLS.includes(t.slice(geminiPrefix.length));
+  }
+  // 3. Claude Code's double-underscore convention, kept for portability
+  //    across ports of this plugin.
+  return ALWAYS_ALLOWED_TOOLS.some((n) => t.endsWith(`__${n}`));
 }
 
 export async function onBeforeTool(payload) {

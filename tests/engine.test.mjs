@@ -366,6 +366,40 @@ test("v0.3 onBeforeAgent injects NOTHING in policy-only mode", async () => {
   });
 });
 
+test("v0.3 onBeforeTool ALLOWS the Gemini-namespaced armorgemini-policy MCP tools even without a plan", async () => {
+  const dataDir = makeScratchDataDir();
+  try {
+    await withEnv({ ARMORIQ_API_KEY: "test-key", ARMORGEMINI_DATA_DIR: dataDir }, async () => {
+      const originalFetch = globalThis.fetch;
+      let fetchCalled = false;
+      globalThis.fetch = mock.fn(async () => {
+        fetchCalled = true;
+        return { ok: true, status: 200, json: async () => ({ allowed: true }) };
+      });
+      try {
+        const { onBeforeTool } = await loadEngineFresh();
+        for (const name of [
+          "mcp_armorgemini-policy_register_intent_plan",
+          "mcp_armorgemini-policy_reset_intent_plan",
+          "mcp_armorgemini-policy_get_intent_plan"
+        ]) {
+          const decision = await onBeforeTool({
+            ...basePayload,
+            tool_name: name,
+            tool_input: {}
+          });
+          assert.equal(decision.decision, "allow", `${name} must always be allowed (plan-management tool)`);
+        }
+        assert.equal(fetchCalled, false, "plan-management MCP tools skip the backend policy check");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("v0.3 onBeforeToolSelection is a no-op (Gemini API rejects allowedFunctionNames with mode:AUTO; enforcement stays in BeforeTool)", async () => {
   const dataDir = makeScratchDataDir();
   writePlan(dataDir, "test-session", {
