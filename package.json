@@ -1,7 +1,7 @@
 {
   "name": "armorgemini",
-  "version": "0.3.0",
-  "description": "Intent-based security enforcement plugin for Gemini CLI.",
+  "version": "0.3.2",
+  "description": "ArmorIQ intent-based security enforcement for the Gemini CLI. Enforces that Gemini declares what it intends to do before doing it, and every action is checked against that declared intent.",
   "type": "module",
   "private": true,
   "engines": {

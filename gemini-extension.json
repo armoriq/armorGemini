@@ -1,7 +1,7 @@
 {
   "name": "armorgemini",
-  "version": "0.3.0",
-  "description": "Intent-based security enforcement for Gemini CLI. Every tool call is checked against a per-turn intent plan (must be declared via register_intent_plan) and your ArmorIQ policy before it runs.",
+  "version": "0.3.2",
+  "description": "ArmorIQ intent-based security enforcement for the Gemini CLI. Enforces that Gemini declares what it intends to do before doing it: declared plans, intent-drift blocking, policy rules, and audit logging.",
   "mcpServers": {
     "armorgemini-policy": {
       "command": "node",

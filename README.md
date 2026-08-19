@@ -1,8 +1,8 @@
 # ArmorGemini
 
-ArmorIQ intent-based security enforcement for Gemini CLI. Every tool call is checked against a per-turn intent plan AND your ArmorIQ workspace policy before it runs.
+ArmorIQ intent-based security enforcement plugin for the Gemini CLI. Enforces that Gemini declares what it intends to do before doing it, and every action is checked against that declared intent.
 
-**Status:** v0.3.0. Real intent-plan enforcement via a bundled MCP server. Requires an ArmorIQ API key.
+**Status:** v0.3.2. Intent-plan enforcement via a bundled MCP server, local-first policy activation (`/armor:yes` is the only confirmation), backend policy layer on top for org-wide rules. Requires an ArmorIQ API key. See [CHANGELOG](CHANGELOG.md) for what changed.
 
 ## Design
 
@@ -23,7 +23,8 @@ User Prompt ──► SessionStart hook             (banner: ENFORCING)
                        ▼
 Tool Call ──► BeforeTool hook  ──► 1. is tool in plan?          (drift check, local, no network)
                                     2. is plan still fresh?      (TTL)
-                                    3. POST /iap/enforce         (policy check, backend)
+                                    3. local policy match?       (${dataDir}/policy.json, no network)
+                                    4. POST /iap/enforce         (backend policy check)
                        │
                        ▼
                 allow | deny
@@ -102,21 +103,26 @@ Tools listed in `steps[].action` are allowed for the rest of the turn. Anything 
 
 ## The `/armor` slash commands
 
-Installed alongside the hooks. All commands stage proposals on the ArmorIQ dashboard - a human confirms them there before they take effect.
+Installed alongside the hooks. `/armor:add` and `/armor:template` stage the policy locally with a YAML preview; `/armor:yes` activates it and enforcement kicks in immediately on this session. No dashboard round-trip.
 
 | Command | Purpose |
 |---|---|
-| `/armor:list` | Show the current policy for this workspace. |
-| `/armor:add <verb> <target> [note]` | Stage a rule change. Verb: `allow`, `deny`, or `hold`. |
-| `/armor:template <name>` | Stage a named policy template (lockdown, strict-read-only, balanced, ...). |
+| `/armor:list` | Show the current active local policy. |
+| `/armor:add <verb> <target> [note]` | Stage a rule change (verb: `allow`, `deny`, or `hold`). Shows a YAML preview. |
+| `/armor:template <name>` | Stage a named policy template (`lockdown`, `strict-read-only`, `balanced`). Shows a YAML preview. |
+| `/armor:yes` | Confirm the currently staged proposal. Writes it to `${dataDir}/policy.json` (`BeforeTool` picks it up immediately) and fire-and-forgets the same policy to the ArmorIQ backend for audit. |
+| `/armor:no` | Discard the currently staged proposal. |
 | `/armor:help` | Show help. |
 
-Examples:
+Example flow:
 
 ```
+/armor:add deny web_fetch external network not allowed here
+    (YAML preview appears, nothing sent anywhere)
+/armor:yes
+    (local policy.json written, enforcement live, backend audit push best-effort)
 /armor:list
-/armor:add deny web_fetch external network is not allowed here
-/armor:template lockdown
+    (shows the new rule)
 ```
 
 ## Hook lifecycle
@@ -125,8 +131,8 @@ Examples:
 |---|---|
 | `SessionStart` | Logs session_id, cwd, and configured state. Prints the ENFORCING banner. |
 | `BeforeAgent` | Injects a directive telling the model to call `register_intent_plan` (armorgemini-policy MCP) before any other tool. |
-| `BeforeToolSelection` | Whitelists the model's tool surface to just the plan (plus the plan-management tools). Structural: the model literally cannot see off-plan tools when it decides. |
-| `BeforeTool` | Two layers: (1) intent-drift check against the registered plan, (2) policy check via `POST /iap/enforce`. Either failing → deny. |
+| `BeforeToolSelection` | No-op today. Gemini API rejects `allowedFunctionNames` with `mode: "AUTO"`, and `mode: "ANY"` forces tool calls on every turn. Enforcement stays in `BeforeTool`. |
+| `BeforeTool` | Layered enforcement: (1) intent-drift check against the registered plan, (2) local policy check against `${dataDir}/policy.json` (source of truth for enforcement, written by `/armor:yes`), (3) backend `POST /iap/enforce` for org-wide policy. Any layer denying → deny. |
 | `AfterTool` | Sanitizes input (redacts obvious secret-shaped keys, truncates long strings), then best-effort `POST /iap/audit`. Never blocks. |
 | `SessionEnd` | Clears the session's plan file. |
 
