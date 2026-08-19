@@ -3,13 +3,22 @@
 // Invoked by the Gemini command TOMLs via !{node scripts/armor/cli.mjs <sub> {{args}}}.
 // Prints human-readable output to stdout, which Gemini pipes into the model
 // prompt for the assistant to summarise back to the user.
+//
+// v0.3.1: /armor:add and /armor:template STAGE the change locally with a
+// YAML preview. /armor:yes confirms and pushes to the ArmorIQ backend;
+// /armor:no discards. Matches ArmorClaude's stage-then-yes UX so nothing
+// hits the backend without the user seeing what's about to be sent.
 
 import { loadConfig } from "../lib/config.mjs";
 import {
   fetchPolicy,
-  proposePolicyChange,
-  proposePolicyTemplate
+  buildPolicyForRule,
+  buildPolicyForTemplate,
+  listTemplateNames,
+  pushProposal
 } from "../lib/backend-client.mjs";
+import { stagePending, readPending, clearPending } from "../lib/pending.mjs";
+import { policyToYaml } from "../lib/policy-yaml.mjs";
 
 const [, , sub, ...rest] = process.argv;
 
@@ -33,6 +42,19 @@ function requireConfigured() {
   return config;
 }
 
+function printStagedPreview(record) {
+  const yaml = policyToYaml(record.policy);
+  console.log(`Staged proposal ${record.proposalId} (expires ${record.expiresAt}):`);
+  console.log("");
+  console.log(yaml);
+  console.log("");
+  console.log("Review the policy above. Then:");
+  console.log("  /armor:yes    apply this proposal to the ArmorIQ backend");
+  console.log("  /armor:no     discard it");
+  console.log("");
+  console.log("ArmorGemini keeps the change local until you say /armor:yes.");
+}
+
 async function cmdList() {
   const config = requireConfigured();
   const res = await fetchPolicy(config);
@@ -45,7 +67,7 @@ async function cmdList() {
   console.log(`Current ArmorIQ policy: ${policy.name || "current"} (default: ${policy.defaultDecision || "allow"})`);
   if (rules.length === 0) {
     console.log("  (no explicit rules — every tool falls to the default decision)");
-    console.log("Use /armor:add to create one, or /armor:template to apply a starter template.");
+    console.log("Use /armor:add to stage one, or /armor:template to stage a starter template.");
     return;
   }
   for (const r of rules) {
@@ -80,15 +102,13 @@ async function cmdAdd(args) {
     console.log("Missing target tool name.");
     return;
   }
-  const res = await proposePolicyChange(config, { verb, target, note, reason: "Proposed via /armor:add" });
-  if (!res.ok) {
-    console.log(`Could not stage rule (${res.stage || "?"}, HTTP ${res.status || "?"}). ${res.error || ""}`.trim());
-    return;
-  }
-  console.log(
-    `Rule staged for confirmation on the ArmorIQ dashboard:\n  ${verb} ${target}${note ? ` - ${note}` : ""}\n` +
-      "A human must confirm the proposal in the dashboard before it takes effect."
-  );
+  const policy = buildPolicyForRule({ verb, target, note });
+  const record = stagePending(config.dataDir, {
+    policy,
+    reason: `Staged via /armor:add ${verb} ${target}${note ? ` (${note})` : ""}`,
+    source: "cli:add"
+  });
+  printStagedPreview(record);
 }
 
 async function cmdTemplate(args) {
@@ -97,19 +117,63 @@ async function cmdTemplate(args) {
   if (!template) {
     console.log(
       "Usage: /armor:template <name>\n" +
-        "  Common templates: lockdown, strict-read-only, balanced, velocity-machine, architect, night-owl."
+        `  Available: ${listTemplateNames().join(", ")}.`
     );
     return;
   }
-  const res = await proposePolicyTemplate(config, template);
-  if (!res.ok) {
-    console.log(`Could not stage template "${template}" (HTTP ${res.status || "?"}). ${res.error || ""}`.trim());
+  const policy = buildPolicyForTemplate(template);
+  if (!policy) {
+    console.log(
+      `Unknown template "${template}". Available: ${listTemplateNames().join(", ")}.`
+    );
     return;
   }
+  const record = stagePending(config.dataDir, {
+    policy,
+    reason: `Staged via /armor:template ${template}`,
+    source: "cli:template"
+  });
+  printStagedPreview(record);
+}
+
+async function cmdYes() {
+  const config = requireConfigured();
+  const { record, expired } = readPending(config.dataDir);
+  if (!record) {
+    console.log("Nothing staged. Use /armor:add or /armor:template first.");
+    return;
+  }
+  if (expired) {
+    clearPending(config.dataDir);
+    console.log("The staged proposal expired. Stage it again with /armor:add or /armor:template.");
+    return;
+  }
+  const res = await pushProposal(config, record.policy, record.reason);
+  if (!res.ok) {
+    console.log(
+      `Could not push the staged proposal (${res.stage || "?"}, HTTP ${res.status || "?"}). ${res.error || ""}`.trim() +
+        "\n" +
+        "The proposal is still staged locally. Fix the underlying issue and run /armor:yes again, or /armor:no to discard."
+    );
+    return;
+  }
+  clearPending(config.dataDir);
   console.log(
-    `Template "${template}" staged for confirmation on the ArmorIQ dashboard.\n` +
-      "A human must confirm the proposal in the dashboard before it takes effect."
+    `Proposal ${record.proposalId} pushed to ArmorIQ.\n` +
+      "It is now awaiting confirmation on the dashboard (https://platform.armoriq.ai/).\n" +
+      "Any Gemini CLI tool call from now on is evaluated against the pending workspace policy."
   );
+}
+
+async function cmdNo() {
+  const config = requireConfigured();
+  const { record } = readPending(config.dataDir);
+  if (!record) {
+    console.log("Nothing staged to discard.");
+    return;
+  }
+  clearPending(config.dataDir);
+  console.log(`Discarded staged proposal ${record.proposalId}. No changes sent to ArmorIQ.`);
 }
 
 function cmdHelp() {
@@ -119,11 +183,16 @@ function cmdHelp() {
       "  /armor:list                     Show the current ArmorIQ policy.\n" +
       "  /armor:add <verb> <target> ...  Stage a rule (verb: allow | deny | hold).\n" +
       "  /armor:template <name>          Stage a named policy template.\n" +
+      "  /armor:yes                      Apply the currently staged proposal.\n" +
+      "  /armor:no                       Discard the currently staged proposal.\n" +
       "  /armor:help                     Show this help.\n" +
       "\n" +
-      "ArmorGemini is backend-authoritative. All /armor commands stage proposals\n" +
-      "on the ArmorIQ dashboard; a human confirms them there before they take\n" +
-      "effect on this workspace's policy."
+      "Flow: /armor:add or /armor:template previews the exact policy that will\n" +
+      "be sent to ArmorIQ as YAML. Nothing hits the backend until you run\n" +
+      "/armor:yes. Staged proposals expire after 30 minutes.\n" +
+      "\n" +
+      "After /armor:yes, the proposal lands on the ArmorIQ dashboard for the\n" +
+      "workspace owner's final confirmation before it becomes active."
   );
 }
 
@@ -132,6 +201,8 @@ try {
   if (cmd === "list") await cmdList();
   else if (cmd === "add") await cmdAdd(rest);
   else if (cmd === "template") await cmdTemplate(rest);
+  else if (cmd === "yes" || cmd === "confirm") await cmdYes();
+  else if (cmd === "no" || cmd === "cancel") await cmdNo();
   else if (cmd === "help") cmdHelp();
   else {
     console.log(`Unknown /armor subcommand: "${cmd}". Run /armor:help for the list.`);

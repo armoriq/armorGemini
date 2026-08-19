@@ -251,7 +251,30 @@ async function draftAndPropose(config, policy, reason) {
 }
 
 /**
- * Stage a policy change as a draft proposal.
+ * Build the policy object for a single verb+target rule. Exported so the
+ * CLI can preview it as YAML before staging locally, without duplicating
+ * the schema shape.
+ */
+export function buildPolicyForRule({ verb, target, note }) {
+  return buildSingleStatementPolicy({ verb, target, note });
+}
+
+/**
+ * Push a fully-built PolicyProfile through the draft -> propose flow. This
+ * is what /armor:yes calls after the user has previewed the staged policy
+ * and confirmed. On success the proposal is registered on the backend and
+ * awaits a human confirm on the dashboard (POST /policies/profiles/confirm
+ * is JWT-only, deliberately not exposed here).
+ */
+export async function pushProposal(config, policy, reason) {
+  return draftAndPropose(config, policy, reason);
+}
+
+/**
+ * @deprecated Retained for backward compatibility with anything still
+ * calling the pre-stage-yes flow directly. New CLI paths should call
+ * buildPolicyForRule() + stagePending() + pushProposal() so the user
+ * gets a YAML preview and an explicit /armor:yes confirmation step.
  */
 export async function proposePolicyChange(config, { verb, target, note, reason }) {
   const policy = buildSingleStatementPolicy({ verb, target, note });
@@ -304,19 +327,40 @@ const TEMPLATES = {
   }
 };
 
-export async function proposePolicyTemplate(config, templateName) {
+/**
+ * Names of the known templates, for validation and help output.
+ */
+export function listTemplateNames() {
+  return Object.keys(TEMPLATES);
+}
+
+/**
+ * Build a template's PolicyProfile without pushing it. The CLI stages this
+ * to the pending file and shows a YAML preview; /armor:yes is what actually
+ * calls pushProposal().
+ */
+export function buildPolicyForTemplate(templateName) {
   const t = TEMPLATES[templateName];
-  if (!t) {
-    return {
-      ok: false,
-      status: 0,
-      error: `Unknown template "${templateName}". Available: ${Object.keys(TEMPLATES).join(", ")}.`
-    };
-  }
-  const policy = {
+  if (!t) return null;
+  return {
     schemaVersion: POLICY_SCHEMA_VERSION,
     kind: "PolicyProfile",
     ...t
   };
+}
+
+/**
+ * @deprecated Retained for backward compat with the pre-stage-yes flow.
+ * New CLI paths use buildPolicyForTemplate() + stagePending() + pushProposal().
+ */
+export async function proposePolicyTemplate(config, templateName) {
+  const policy = buildPolicyForTemplate(templateName);
+  if (!policy) {
+    return {
+      ok: false,
+      status: 0,
+      error: `Unknown template "${templateName}". Available: ${listTemplateNames().join(", ")}.`
+    };
+  }
   return draftAndPropose(config, policy, `Applied template "${templateName}" via ArmorGemini`);
 }

@@ -1,0 +1,6 @@
+description = "Confirm and apply the currently staged ArmorGemini policy proposal."
+
+prompt = """The user ran /armor:yes to confirm the currently staged ArmorGemini policy. Below is the raw output from the ArmorGemini backend CLI. Report it verbatim. Do not invent proposal ids or claim confirmation on the ArmorIQ dashboard yourself - the workspace owner still has to confirm the pushed proposal on https://platform.armoriq.ai/.
+
+!{node __ARMORGEMINI_HOME__/scripts/armor/cli.mjs yes}
+"""

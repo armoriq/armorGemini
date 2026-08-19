@@ -1,0 +1,6 @@
+description = "Discard the currently staged ArmorGemini policy proposal without applying it."
+
+prompt = """The user ran /armor:no to discard the currently staged ArmorGemini policy proposal. Below is the raw output from the ArmorGemini backend CLI. Report it verbatim.
+
+!{node __ARMORGEMINI_HOME__/scripts/armor/cli.mjs no}
+"""
