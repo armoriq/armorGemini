@@ -1,8 +1,8 @@
 # ArmorGemini
 
-ArmorIQ intent-based security enforcement for Gemini CLI. Every tool call is checked against a per-turn intent plan AND your ArmorIQ workspace policy before it runs.
+ArmorIQ intent-based security enforcement plugin for the Gemini CLI. Enforces that Gemini declares what it intends to do before doing it, and every action is checked against that declared intent.
 
-**Status:** v0.3.2. Real intent-plan enforcement via a bundled MCP server, local-first policy activation (`/armor:yes` is the only confirmation). Requires an ArmorIQ API key. See [CHANGELOG](CHANGELOG.md) for what changed.
+**Status:** v0.3.2. Intent-plan enforcement via a bundled MCP server, local-first policy activation (`/armor:yes` is the only confirmation), backend policy layer on top for org-wide rules. Requires an ArmorIQ API key. See [CHANGELOG](CHANGELOG.md) for what changed.
 
 ## Design
 

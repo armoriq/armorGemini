@@ -4,6 +4,10 @@ All notable changes to ArmorGemini are documented in this file. Dates are ISO YY
 
 ## 0.3.2 — 2026-08-17
 
+### Changed
+
+- **Tagline aligned with ArmorClaude.** README, `package.json` description, `gemini-extension.json` description, and the GitHub repo About all now lead with "ArmorIQ intent-based security enforcement for the Gemini CLI. Enforces that Gemini declares what it intends to do before doing it, and every action is checked against that declared intent." The previous framing described policy checking as if that were the headline feature; intent enforcement is what the plugin is actually for.
+
 ### Added
 
 - **`/armor:yes` is now the only confirmation.** Approving a staged proposal writes the confirmed policy to `${dataDir}/policy.json` and activates it on the current Gemini CLI session immediately, then fire-and-forgets the same policy to the ArmorIQ backend for audit and fleet propagation. The ArmorIQ dashboard is no longer part of the confirm path.
