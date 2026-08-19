@@ -18,7 +18,7 @@ User Prompt ──► SessionStart hook             (banner: ENFORCING)
                 Model calls register_intent_plan (armorgemini-policy MCP tool)
                        │
                        ▼
-                BeforeToolSelection hook        (whitelist the model's tool surface to just the plan)
+                BeforeToolSelection hook        (no-op today, see Hook lifecycle)
                        │
                        ▼
 Tool Call ──► BeforeTool hook  ──► 1. is tool in plan?          (drift check, local, no network)
