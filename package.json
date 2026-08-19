@@ -1,6 +1,6 @@
 {
   "name": "armorgemini",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Intent-based security enforcement plugin for Gemini CLI.",
   "type": "module",
   "private": true,
