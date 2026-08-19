@@ -11,7 +11,6 @@
 
 import { loadConfig } from "../lib/config.mjs";
 import {
-  fetchPolicy,
   buildPolicyForRule,
   buildPolicyForTemplate,
   listTemplateNames,
@@ -19,6 +18,7 @@ import {
 } from "../lib/backend-client.mjs";
 import { stagePending, readPending, clearPending } from "../lib/pending.mjs";
 import { policyToYaml } from "../lib/policy-yaml.mjs";
+import { saveActivePolicy, readActivePolicy } from "../lib/local-policy.mjs";
 
 const [, , sub, ...rest] = process.argv;
 
@@ -57,22 +57,25 @@ function printStagedPreview(record) {
 
 async function cmdList() {
   const config = requireConfigured();
-  const res = await fetchPolicy(config);
-  if (!res.ok) {
-    console.log(`Could not fetch policy from ArmorIQ (HTTP ${res.status}). ${res.error || ""}`.trim());
+  const policy = readActivePolicy(config.dataDir);
+  if (!policy) {
+    console.log("No active local policy. Every tool falls to the default (allow) until /armor:add + /armor:yes.");
     return;
   }
-  const policy = res.policy || {};
-  const rules = policy.rules || [];
-  console.log(`Current ArmorIQ policy: ${policy.name || "current"} (default: ${policy.defaultDecision || "allow"})`);
-  if (rules.length === 0) {
+  const statements = Array.isArray(policy.statements) ? policy.statements : [];
+  console.log(
+    `Active local policy: ${policy.metadata?.name || "unnamed"} ` +
+      `(default: ${policy.defaults?.decision || "allow"})`
+  );
+  if (statements.length === 0) {
     console.log("  (no explicit rules — every tool falls to the default decision)");
-    console.log("Use /armor:add to stage one, or /armor:template to stage a starter template.");
     return;
   }
-  for (const r of rules) {
-    const note = r.note ? ` - ${r.note}` : "";
-    console.log(`  [${r.id || "?"}] ${r.verb || "?"} ${r.target || "?"}${note}`);
+  for (const s of statements) {
+    console.log(
+      `  [${s.id}] ${s.effect} ${s.action?.eq || "*"}` +
+        (s.description ? ` - ${s.description}` : "")
+    );
   }
 }
 
@@ -148,20 +151,35 @@ async function cmdYes() {
     console.log("The staged proposal expired. Stage it again with /armor:add or /armor:template.");
     return;
   }
+
+  // Local activation is authoritative for enforcement (matches ArmorClaude).
+  // Write the policy to $dataDir/policy.json BEFORE the network hop so a
+  // failing backend push does not block enforcement.
+  saveActivePolicy(config.dataDir, record.policy);
+
+  // Backend push is fire-and-forget: audit + fleet propagation only. If it
+  // fails, enforcement on this box is already live from the local file, so
+  // we report the failure but do not roll back the local activation.
   const res = await pushProposal(config, record.policy, record.reason);
+
+  clearPending(config.dataDir);
+
   if (!res.ok) {
     console.log(
-      `Could not push the staged proposal (${res.stage || "?"}, HTTP ${res.status || "?"}). ${res.error || ""}`.trim() +
+      `Local policy activated (proposal ${record.proposalId}).\n` +
+        `BeforeTool now enforces it on this Gemini CLI session immediately.\n` +
         "\n" +
-        "The proposal is still staged locally. Fix the underlying issue and run /armor:yes again, or /armor:no to discard."
+        `Backend audit push failed (${res.stage || "?"}, HTTP ${res.status || "?"}): ${res.error || ""}\n`.trim() +
+        "\n" +
+        "The local enforcement is unaffected. Re-run /armor:yes to retry the audit push later, or leave it — the next successful /armor:yes will re-sync the backend."
     );
     return;
   }
-  clearPending(config.dataDir);
+
   console.log(
-    `Proposal ${record.proposalId} pushed to ArmorIQ.\n` +
-      "It is now awaiting confirmation on the dashboard (https://platform.armoriq.ai/).\n" +
-      "Any Gemini CLI tool call from now on is evaluated against the pending workspace policy."
+    `Local policy activated (proposal ${record.proposalId}).\n` +
+      "BeforeTool now enforces it on this Gemini CLI session immediately - no dashboard step required.\n" +
+      "The same policy was also pushed to the ArmorIQ backend for audit and fleet propagation."
   );
 }
 

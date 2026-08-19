@@ -29,6 +29,7 @@ import { verifyStep, sendAudit } from "./backend-client.mjs";
 import { writeLog } from "./hook-io.mjs";
 import { INTENT_PLAN_FORMAT, planContainsTool, planToolNames } from "./intent-schema.mjs";
 import { loadPlan, hasPlan, clearPlan, planAgeSeconds } from "./planner.mjs";
+import { readActivePolicy, evaluateLocalPolicy } from "./local-policy.mjs";
 
 function sanitizeInput(input) {
   const denyKeys = /(password|token|secret|api[_-]?key|authorization)/i;
@@ -244,7 +245,26 @@ export async function onBeforeTool(payload) {
     }
   }
 
-  // --- Layer 2: backend policy check ---
+  // --- Layer 2a: local policy check (source of truth for enforcement) ---
+  // /armor:yes writes the confirmed policy to dataDir/policy.json. If a
+  // local policy is present we evaluate here first. A local deny short-
+  // circuits the network hop and blocks the tool immediately; a local
+  // allow (or no local policy at all) falls through to the backend check
+  // so org-wide policy still applies.
+  const localPolicy = readActivePolicy(config.dataDir);
+  if (localPolicy) {
+    const localVerdict = evaluateLocalPolicy(localPolicy, toolName);
+    if (localVerdict.decision === "deny") {
+      writeLog(`DENY ${toolName} - ${localVerdict.reason}`);
+      return {
+        decision: "deny",
+        reason: localVerdict.reason,
+        systemMessage: `🛡️ ArmorGemini blocked ${toolName} (local policy)`
+      };
+    }
+  }
+
+  // --- Layer 2b: backend policy check ---
   const verdict = await verifyStep(config, {
     sessionId,
     toolName,

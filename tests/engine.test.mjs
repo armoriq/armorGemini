@@ -400,6 +400,65 @@ test("v0.3 onBeforeTool ALLOWS the Gemini-namespaced armorgemini-policy MCP tool
   }
 });
 
+test("v0.3.2 onBeforeTool DENIES on local policy match before hitting the backend", async () => {
+  const dataDir = makeScratchDataDir();
+  // Register a plan so intent-drift doesn't fire first, and write an
+  // active local policy that forbids web_fetch.
+  writePlan(dataDir, "test-session", {
+    goal: "Try to fetch a URL",
+    steps: [{ action: "web_fetch" }]
+  });
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(
+    path.join(dataDir, "policy.json"),
+    JSON.stringify({
+      savedAt: new Date().toISOString(),
+      policy: {
+        schemaVersion: "armor.policy.v1",
+        kind: "PolicyProfile",
+        metadata: { name: "test-local", description: "" },
+        defaults: { decision: "allow", conflictResolution: "deny_overrides" },
+        statements: [
+          {
+            id: "deny-fetch",
+            effect: "forbid",
+            principal: { type: "agent", id: "gemini-cli" },
+            action: { type: "tool", eq: "WebFetch" },
+            resource: { type: "workspace", scope: "current" },
+            conditions: []
+          }
+        ]
+      }
+    })
+  );
+  try {
+    await withEnv({ ARMORIQ_API_KEY: "test-key", ARMORGEMINI_DATA_DIR: dataDir }, async () => {
+      let fetchCalled = false;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock.fn(async () => {
+        fetchCalled = true;
+        return { ok: true, status: 200, json: async () => ({ allowed: true }) };
+      });
+      try {
+        const { onBeforeTool } = await loadEngineFresh();
+        const decision = await onBeforeTool({
+          ...basePayload,
+          tool_name: "web_fetch",
+          tool_input: { url: "https://example.com" }
+        });
+        assert.equal(decision.decision, "deny");
+        assert.match(decision.reason, /Local policy statement deny-fetch/);
+        assert.match(decision.systemMessage, /local policy/);
+        assert.equal(fetchCalled, false, "local deny must short-circuit the backend call");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("v0.3 onBeforeToolSelection is a no-op (Gemini API rejects allowedFunctionNames with mode:AUTO; enforcement stays in BeforeTool)", async () => {
   const dataDir = makeScratchDataDir();
   writePlan(dataDir, "test-session", {
