@@ -1,0 +1,6 @@
+description = "Show ArmorGemini /armor command help."
+
+prompt = """The user ran /armor:help. Below is the help text from ArmorGemini. Show it verbatim.
+
+!{node ${extensionPath}/scripts/armor/cli.mjs help}
+"""

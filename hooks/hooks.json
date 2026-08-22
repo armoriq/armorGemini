@@ -1,0 +1,76 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-session-start",
+            "type": "command",
+            "command": "node ${extensionPath}/scripts/hook-router.mjs session-start"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-before-agent",
+            "type": "command",
+            "command": "node ${extensionPath}/scripts/hook-router.mjs before-agent"
+          }
+        ]
+      }
+    ],
+    "BeforeToolSelection": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-before-tool-selection",
+            "type": "command",
+            "command": "node ${extensionPath}/scripts/hook-router.mjs before-tool-selection"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-before-tool",
+            "type": "command",
+            "command": "node ${extensionPath}/scripts/hook-router.mjs before-tool"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-after-tool",
+            "type": "command",
+            "command": "node ${extensionPath}/scripts/hook-router.mjs after-tool"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "armorgemini-session-end",
+            "type": "command",
+            "command": "node ${extensionPath}/scripts/hook-router.mjs session-end"
+          }
+        ]
+      }
+    ]
+  }
+}
