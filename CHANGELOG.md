@@ -7,7 +7,7 @@ All notable changes to ArmorGemini are documented in this file. Dates are ISO YY
 ### Changed
 
 - **Migrated to the standard Gemini CLI extension layout.** ArmorGemini now ships hooks, commands, and a context file in the locations Gemini CLI's extension loader natively discovers, so `gemini extensions install armoriq/armorGemini` (or `gemini extensions link .`) wires up the plugin without the installer script needing to hand-merge anything into `~/.gemini/settings.json`. Concretely: `hooks/hooks.json` (six-hook block, `${extensionPath}` substitutions), `commands/armor/*.toml` (six slash commands, `${extensionPath}` substitutions), and `GEMINI.md` with a matching `contextFileName` entry in the manifest. `gemini extensions validate` accepts the layout.
-- **`gemini-extension.json` now declares `contextFileName: "GEMINI.md"`.** The context file is a compact, session-persistent restatement of the intent-plan rule and the `/armor` command surface. Redundant with the per-turn `BeforeAgent` directive but visible to the model without a turn round-trip, so it also picks up cases where `BeforeAgent` output was elided.
+- **`gemini-extension.json` now declares `contextFileName: "GEMINI.md"`.** The context file is a compact, session-persistent restatement of the intent-plan rule and the `/armor` command surface. It complements the per-turn `BeforeAgent` directive, which provides the dynamic session ID required to register a plan.
 - Bumped `package.json` and `gemini-extension.json` to `0.3.3`.
 
 ### Fixed

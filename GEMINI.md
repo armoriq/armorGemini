@@ -4,10 +4,11 @@ You are running with the ArmorGemini extension active. ArmorGemini enforces inte
 
 ## The rule
 
-Before you call any tool, you must first declare what you intend to do. Call the `register_intent_plan` tool (from the bundled `armorgemini-policy` MCP server) with a plan object of the shape:
+Before you call any tool, you must first declare what you intend to do. The per-turn ArmorGemini directive provides the current session ID. Pass that value verbatim to the `register_intent_plan` tool (from the bundled `armorgemini-policy` MCP server) with a plan object of the shape:
 
 ```json
 {
+  "session_id": "<session ID from the per-turn ArmorGemini directive>",
   "goal": "One-line summary of the task",
   "steps": [
     { "action": "read_file",       "description": "why this tool is needed" },
@@ -18,7 +19,7 @@ Before you call any tool, you must first declare what you intend to do. Call the
 
 Only tools listed in `steps[].action` are allowed for the rest of the turn. Anything else is blocked at `BeforeTool` as intent drift.
 
-If your plan changes mid-turn, call `register_intent_plan` again with the updated plan. To clear the current plan explicitly (rare), call `reset_intent_plan`.
+If the per-turn directive does not provide a session ID, explain that ArmorGemini cannot register the plan; this static context cannot determine the dynamic session ID. If your plan changes mid-turn, call `register_intent_plan` again with the updated plan. To clear the current plan explicitly (rare), call `reset_intent_plan`.
 
 ## What happens if you skip the plan
 
