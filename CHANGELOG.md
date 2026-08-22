@@ -2,6 +2,22 @@
 
 All notable changes to ArmorGemini are documented in this file. Dates are ISO YYYY-MM-DD.
 
+## 0.3.3 — 2026-08-22
+
+### Changed
+
+- **Migrated to the standard Gemini CLI extension layout.** ArmorGemini now ships hooks, commands, and a context file in the locations Gemini CLI's extension loader natively discovers, so `gemini extensions install armoriq/armorGemini` (or `gemini extensions link .`) wires up the plugin without the installer script needing to hand-merge anything into `~/.gemini/settings.json`. Concretely: `hooks/hooks.json` (six-hook block, `${extensionPath}` substitutions), `commands/armor/*.toml` (six slash commands, `${extensionPath}` substitutions), and `GEMINI.md` with a matching `contextFileName` entry in the manifest. `gemini extensions validate` accepts the layout.
+- **`gemini-extension.json` now declares `contextFileName: "GEMINI.md"`.** The context file is a compact, session-persistent restatement of the intent-plan rule and the `/armor` command surface. Redundant with the per-turn `BeforeAgent` directive but visible to the model without a turn round-trip, so it also picks up cases where `BeforeAgent` output was elided.
+- Bumped `package.json` and `gemini-extension.json` to `0.3.3`.
+
+### Fixed
+
+- **geminicli.com catalog badges.** Previously the card at [geminicli.com/extensions](https://geminicli.com/extensions/browse/) showed only an "MCP" badge because that was the only capability declared in `gemini-extension.json`. Everything else the plugin does (hooks, `/armor` slash commands) was applied by our installer script's post-install steps, not exposed through the standard extension layout, so the crawler could not see it. With the new layout the card now shows "MCP + Hooks + Commands + Context file" (four badges), which is what an extension of this shape should look like.
+
+### Compatibility
+
+- The legacy `.gemini/settings.json` and `.gemini/commands/armor/` files are still shipped in the repo so previously-released installers keep working during the rollout. They will be removed once `install_armorgemini.sh` on the landing has been updated to rely on `gemini extensions link` exclusively.
+
 ## 0.3.2 — 2026-08-17
 
 ### Changed
