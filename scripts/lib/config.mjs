@@ -17,6 +17,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
+const PRODUCT = "armorgemini";
 const DEFAULT_BACKEND = "https://api.armoriq.ai";
 const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_DATA_DIR = path.join(homedir(), ".gemini", "armorgemini");
@@ -40,6 +41,36 @@ function readCredentialsFile() {
   }
 }
 
+/**
+ * Pick the login this plugin should use out of ~/.armoriq/credentials.json.
+ *
+ * `armoriq login` writes one of two shapes. The v1 file was flat
+ * (`{ apiKey, orgId, ... }`); from SDK 0.8 it is
+ * `{ version: 2, active, profiles: { "<product>@<host>": { apiKey, backend, orgId } } }`.
+ * Reading only the flat shape left every v2 user permanently unconfigured, so
+ * both are accepted here. An `armorgemini` profile wins, then the active one,
+ * then any single login, so a user who signed in for another ArmorIQ tool is
+ * still connected rather than hard-denied.
+ */
+function resolveCredentials(creds) {
+  if (!creds || typeof creds !== "object") return null;
+  if (typeof creds.apiKey === "string" && creds.apiKey) {
+    return { apiKey: creds.apiKey, backend: creds.backendEndpoint, orgId: creds.orgId };
+  }
+
+  const profiles = creds.profiles;
+  if (!profiles || typeof profiles !== "object") return null;
+  const usable = Object.entries(profiles).filter(
+    ([, p]) => p && typeof p.apiKey === "string" && p.apiKey
+  );
+  if (usable.length === 0) return null;
+
+  const byProduct = usable.find(([, p]) => p.product === PRODUCT);
+  const byActive = usable.find(([key]) => key === creds.active);
+  const [, profile] = byProduct || byActive || usable[0];
+  return { apiKey: profile.apiKey, backend: profile.backend, orgId: profile.orgId };
+}
+
 function envBoolean(name, def) {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return def;
@@ -47,7 +78,7 @@ function envBoolean(name, def) {
 }
 
 export function loadConfig() {
-  const creds = readCredentialsFile();
+  const creds = resolveCredentials(readCredentialsFile());
 
   const apiKey =
     process.env.ARMORIQ_API_KEY ||
@@ -58,7 +89,7 @@ export function loadConfig() {
   const backendEndpoint = (
     process.env.ARMORIQ_BACKEND_ENDPOINT ||
     process.env.ARMORGEMINI_BACKEND_ENDPOINT ||
-    (typeof creds?.backendEndpoint === "string" ? creds.backendEndpoint : "") ||
+    (typeof creds?.backend === "string" ? creds.backend : "") ||
     DEFAULT_BACKEND
   ).replace(/\/+$/, "");
 
