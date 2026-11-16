@@ -10,7 +10,7 @@ trap 'rm -rf "$stage"' EXIT
 
 git -C "$root" archive --format=tar HEAD \
   gemini-extension.json GEMINI.md package.json package-lock.json LICENSE README.md CHANGELOG.md \
-  hooks commands scripts .gemini | tar -x -C "$stage"
+  hooks commands scripts .gemini | COPYFILE_DISABLE=1 tar -x -C "$stage"
 (cd "$stage" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --silent)
 
 for required in gemini-extension.json hooks/hooks.json scripts/hook-router.mjs scripts/policy-mcp.mjs \
@@ -19,5 +19,6 @@ for required in gemini-extension.json hooks/hooks.json scripts/hook-router.mjs s
 done
 
 case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
-tar -czf "$out" -C "$stage" .
+# macOS tar otherwise adds ._* AppleDouble files, which Gemini CLI tries to load as commands.
+COPYFILE_DISABLE=1 tar -czf "$out" -C "$stage" .
 echo "$out"
