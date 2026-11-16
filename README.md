@@ -64,7 +64,7 @@ Every version bump on `main` publishes a GitHub release with one asset, `armorge
 gemini extensions install https://github.com/armoriq/armorGemini --auto-update --consent
 ```
 
-Gemini CLI checks for updates when its interactive UI starts and applies them without a prompt. To update by hand, run `gemini extensions update armorgemini`. An extension wired with `gemini extensions link` is never updated by Gemini CLI, so a linked checkout only changes when you pull it yourself.
+Gemini CLI checks for a newer release when its interactive UI starts and installs it without a prompt once the session is in use. It only installs extensions from a trusted folder, so a session started in an untrusted folder skips the update until a later session in a trusted one. To update by hand, run `gemini extensions update armorgemini` from a trusted folder. An extension wired with `gemini extensions link` is never updated by Gemini CLI, so a linked checkout only changes when you pull it yourself.
 
 ### Manual credential controls (dev / advanced)
 
