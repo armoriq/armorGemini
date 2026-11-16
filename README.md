@@ -56,6 +56,16 @@ The installer:
 
 After that first run there is nothing more to do. The plugin picks up the key from `~/.armoriq/credentials.json` on every subsequent Gemini CLI session.
 
+### Updates
+
+Every version bump on `main` publishes a GitHub release with one asset, `armorgemini.tar.gz`, which carries the extension and its production dependencies. Install from the release with auto-update on, and Gemini CLI replaces the extension itself when a newer release appears:
+
+```bash
+gemini extensions install https://github.com/armoriq/armorGemini --auto-update --consent
+```
+
+Gemini CLI checks for updates when its interactive UI starts and applies them without a prompt. To update by hand, run `gemini extensions update armorgemini`. An extension wired with `gemini extensions link` is never updated by Gemini CLI, so a linked checkout only changes when you pull it yourself.
+
 ### Manual credential controls (dev / advanced)
 
 End users should not need these. For local dev or CI:

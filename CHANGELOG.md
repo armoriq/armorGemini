@@ -2,6 +2,16 @@
 
 All notable changes to ArmorGemini are documented in this file. Dates are ISO YYYY-MM-DD.
 
+## Unreleased
+
+### Added
+
+- **Releases and auto-update.** A version bump on `main` tags `v<version>` and publishes a GitHub release whose only asset, `armorgemini.tar.gz`, holds the extension with its production `node_modules`. Installed with `gemini extensions install https://github.com/armoriq/armorGemini --auto-update`, Gemini CLI updates the extension itself on the next interactive start after a release. `scripts/release/check-version.mjs` fails CI when `package.json`, `gemini-extension.json` and the lockfile disagree.
+
+### Fixed
+
+- `package-lock.json` reported version 0.3.0 while the package was 0.3.3.
+
 ## 0.3.3 — 2026-08-22
 
 ### Changed

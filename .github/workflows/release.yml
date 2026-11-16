@@ -1,0 +1,110 @@
+name: Release
+
+# A release is cut by changing the version on main. Gemini CLI installs the latest release of
+# armoriq/armorGemini and, with --auto-update, replaces it when a newer release appears.
+# workflow_dispatch re-runs the same path, which is how a run that failed after tagging is retried.
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - gemini-extension.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      released: ${{ steps.read.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read the version and look for an existing release
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node scripts/release/check-version.mjs)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          released=false
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then released=true; fi
+          if gh release view "v$version" >/dev/null 2>&1; then released=true; fi
+          echo "released=$released" >> "$GITHUB_OUTPUT"
+          if [ "$released" = true ]; then
+            echo "v$version is already released; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  release:
+    needs: plan
+    if: needs.plan.outputs.released != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Test
+        run: npm test
+
+      - name: Build the release archive
+        run: |
+          checked=$(node scripts/release/check-version.mjs)
+          if [ "$checked" != "$VERSION" ]; then
+            echo "the version moved during the run: $checked is not $VERSION"
+            exit 1
+          fi
+          scripts/release/pack.sh armorgemini.tar.gz
+          sha256sum armorgemini.tar.gz | tee armorgemini.tar.gz.sha256
+
+      # The tag is immutable: it is created once, never moved, and the plan job refuses to
+      # re-release a version whose tag already exists.
+      - name: Tag the released commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "tag v$VERSION already exists; refusing to move it"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Release v$VERSION" "$GITHUB_SHA"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "v$VERSION"
+
+      # Exactly one asset: Gemini CLI only picks a platform-neutral asset when it is the release's
+      # only one, and otherwise falls back to the source tarball, which has no node_modules. The
+      # checksum therefore goes in the release notes rather than in a second asset.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "SHA-256 of armorgemini.tar.gz: \`$(cut -d' ' -f1 armorgemini.tar.gz.sha256)\`"
+            echo
+          } > notes.md
+          gh release create "v$VERSION" armorgemini.tar.gz \
+            --title "v$VERSION" --verify-tag --generate-notes --notes-file notes.md
